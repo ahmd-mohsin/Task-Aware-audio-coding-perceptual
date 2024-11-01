@@ -4,7 +4,7 @@ import torch
 import random
 from torchvision import datasets, transforms
 
-from dtac.gym_fetch.curl_sac import Actor
+# from dtac.gym_fetch.curl_sac import Actor
 from dtac.gym_fetch.utils import center_crop_image             
 from dtac.ClassDAE import *
 
@@ -733,49 +733,49 @@ def JointPCAEQ(dvae_model, rep_dim, device, env='gym_fetch'):
 
 
 
-if __name__ == '__main__':
-    ### Set the random seed
-    seed = 0
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
-    torch.backends.cudnn.deterministic = True
-    print("random seed: ", seed)
+# if __name__ == '__main__':
+#     ### Set the random seed
+#     seed = 0
+#     random.seed(seed)
+#     np.random.seed(seed)
+#     torch.manual_seed(seed)
+#     torch.cuda.manual_seed(seed)
+#     torch.backends.cudnn.deterministic = True
+#     print("random seed: ", seed)
 
-    view_from = '2image' # '2image' or '_side' or '_arm'
-    view, channel = 1, 3
-    if view_from == '2image':
-        view, channel = 2, 6
+#     view_from = '2image' # '2image' or '_side' or '_arm'
+#     view, channel = 1, 3
+#     if view_from == '2image':
+#         view, channel = 2, 6
 
-    device_num = 6
-    cropTF = '_nocrop' # '_nocrop' or ''
-    device = torch.device(f"cuda:{device_num}" if torch.cuda.is_available() else "cpu")
-    model_path = './gym_fetch/models/'
-    model_name = f'actor{cropTF}{view_from}/actor{view_from}-99.pth'
+#     device_num = 6
+#     cropTF = '_nocrop' # '_nocrop' or ''
+#     device = torch.device(f"cuda:{device_num}" if torch.cuda.is_available() else "cpu")
+#     model_path = './gym_fetch/models/'
+#     model_name = f'actor{cropTF}{view_from}/actor{view_from}-99.pth'
 
-    image_cropped_size = 128 # 112
-    image_orig_size = 128
-    z_dim = 64
-    vae_path = './gym_fetch/models/'
+#     image_cropped_size = 128 # 112
+#     image_orig_size = 128
+#     z_dim = 64
+#     vae_path = './gym_fetch/models/'
 
-    beta_rec = 0.0 # 98304.0 10000.0
-    batch_size = 128
-    beta_kl = 25.0 # 1.0 25.0
-    vae_model = "CNNBasedVAE" # "SVAE" or "CNNBasedVAE"
-    weight_cross_penalty = 100.0
-    task_weight = 100.0 # task aware
-    VAEepoch = 99
-    norm_sample = False # False True
-    vae_name = f'gym_fetch_{z_dim}_aware{norm_sample}{vae_model}_{beta_kl}_{beta_rec}_{task_weight}_{batch_size}_{weight_cross_penalty}/DVAE_awa-{VAEepoch}.pth'
+#     beta_rec = 0.0 # 98304.0 10000.0
+#     batch_size = 128
+#     beta_kl = 25.0 # 1.0 25.0
+#     vae_model = "CNNBasedVAE" # "SVAE" or "CNNBasedVAE"
+#     weight_cross_penalty = 100.0
+#     task_weight = 100.0 # task aware
+#     VAEepoch = 99
+#     norm_sample = False # False True
+#     vae_name = f'gym_fetch_{z_dim}_aware{norm_sample}{vae_model}_{beta_kl}_{beta_rec}_{task_weight}_{batch_size}_{weight_cross_penalty}/DVAE_awa-{VAEepoch}.pth'
 
-    ### Load policy network
-    if vae_model == 'CNNBasedVAE':
-        dvae_model = E2D1((3,128,128), (3,128,128), int(z_dim/2), int(z_dim/2), norm_sample=norm_sample).to(device)
+#     ### Load policy network
+#     if vae_model == 'CNNBasedVAE':
+#         dvae_model = E2D1((3,128,128), (3,128,128), int(z_dim/2), int(z_dim/2), norm_sample=norm_sample).to(device)
 
-    dvae_model.load_state_dict(torch.load(vae_path + vae_name))
-    dvae_model.eval()
-    act_model = Actor((channel, image_cropped_size, image_cropped_size), (4,), 1024, 'pixel', 50, -10, 2, 4, 32, None, False).to(device)
-    act_model.load_state_dict(torch.load(model_path + model_name))
-    act_model.eval()
-    DistriburedPCA(dvae_model, rep_dim=int(z_dim/4*3), device=device)
+#     dvae_model.load_state_dict(torch.load(vae_path + vae_name))
+#     dvae_model.eval()
+#     act_model = Actor((channel, image_cropped_size, image_cropped_size), (4,), 1024, 'pixel', 50, -10, 2, 4, 32, None, False).to(device)
+#     act_model.load_state_dict(torch.load(model_path + model_name))
+#     act_model.eval()
+#     DistriburedPCA(dvae_model, rep_dim=int(z_dim/4*3), device=device)

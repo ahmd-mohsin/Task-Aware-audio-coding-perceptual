@@ -13,11 +13,11 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 import argparse
 from tqdm import tqdm
-
+from rich.progress import track
 from dtac.ClassDAE import *
 from dtac.object_detection.yolo_model import YoloV1, YoloLoss
 from dtac.object_detection.od_utils import *
-CLEAN_SPEECH_SIGNAL_FOLDER_NAME = "clean_images"
+CLEAN_SPEECH_SIGNAL_FOLDER_NAME = "clean_images/spectrograms_S02_P05"
 NOISY_SPEECH_SIGNAL_FOLDER_NAME = "noisy_images"
 
 def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, beta_kl=1.0, beta_rec=0.0, beta_task=1.0, weight_cross_penalty=0.1, 
@@ -51,88 +51,85 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
     device = torch.device("cpu") if args.device <= -1 else torch.device("cuda:" + str(args.device))
 
     ### Load the dataset
-    if dataset == "airbus":
-        file_parent_dir = f'../airbus_dataset/224x224_overlap28_percent0.3/'
-        files_dir = file_parent_dir + 'train/'
-        
-        # annots = []
-        # for image in images:
-        #     annot = image[:-4] + '.txt'
-        #     annots.append(annot)
-        # print("Total images: ",len(images))    
-        # print("Total annots: ",len(annots))    
-        # print("Total images: ",images[0])    
-        # print("Total annots: ",annots[0])    
-        # images = pd.Series(images, name='images')
-        # annots = pd.Series(annots, name='annots')
-        # df = pd.concat([images, annots], axis=1)
-        # df = pd.DataFrame(df)
-        # print(df.head())
-        # print(f"resize to {height}x{height} then 448x448")
-        # print("training set: ", file_parent_dir.split('/')[-2])
-        p = 0.05
-        print("p: ", p)
-        transform_img = A.Compose(transforms=[
-            # A.Resize(width=height, height=height),
-            A.RandomResizedCrop(width=height, height=height),
-            A.Blur(p=p, blur_limit=(3, 7)), 
-            A.MedianBlur(p=p, blur_limit=(3, 7)), A.ToGray(p=p), 
-            A.CLAHE(p=p, clip_limit=(1, 4.0), tile_grid_size=(8, 8)),
-            ToTensorV2(p=1.0)
-        ])
+    file_parent_dir = f'../airbus_dataset/224x224_overlap28_percent0.3/'
+    files_dir =  './Data'
+    
+    # annots = []
+    # for image in images:
+    #     annot = image[:-4] + '.txt'
+    #     annots.append(annot)
+    # print("Total images: ",len(images))    
+    # print("Total annots: ",len(annots))    
+    # print("Total images: ",images[0])    
+    # print("Total annots: ",annots[0])    
+    # images = pd.Series(images, name='images')
+    # annots = pd.Series(annots, name='annots')
+    # df = pd.concat([images, annots], axis=1)
+    # df = pd.DataFrame(df)
+    # print(df.head())
+    # print(f"resize to {height}x{height} then 448x448")
+    # print("training set: ", file_parent_dir.split('/')[-2])
+    p = 0.05
+    print("p: ", p)
+    transform_img = A.Compose(transforms=[
+        A.Resize(width=height, height=height),
+        # A.RandomResizedCrop(width=height, height=height),
+        # A.Blur(p=p, blur_limit=(3, 7)), 
+        # A.MedianBlur(p=p, blur_limit=(3, 7)), A.ToGray(p=p), 
+        # A.CLAHE(p=p, clip_limit=(1, 4.0), tile_grid_size=(8, 8)),
+        ToTensorV2(p=1.0)
+    ])
 
-        train_dataset = ImagesDataset(
-            files_dir=files_dir,
-            transform=transform_img,
-            clean_image_folder = CLEAN_SPEECH_SIGNAL_FOLDER_NAME,
-            noisy_image_folder = NOISY_SPEECH_SIGNAL_FOLDER_NAME
-        )
-        g = torch.Generator()
-        g.manual_seed(0)
-        train_loader = DataLoader(
-            dataset=train_dataset,
-            batch_size=batch_size,
-            shuffle=True,
-            drop_last=False,
-            worker_init_fn=seed_worker,
-            generator=g,
-            # num_samples = 2,
-        )
-        cropped_image_size_w = width
-        cropped_image_size_h = height
-        cropped_image_size = height
+    train_dataset = ImagesDataset(
+        files_dir=files_dir,
+        transform=transform_img,
+        clean_image_folder = CLEAN_SPEECH_SIGNAL_FOLDER_NAME,
+        noisy_image_folder = NOISY_SPEECH_SIGNAL_FOLDER_NAME
+    )
+    g = torch.Generator()
+    g.manual_seed(0)
+    train_loader = DataLoader(
+        dataset=train_dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        drop_last=False,
+        worker_init_fn=seed_worker,
+        generator=g,
+        # num_samples = 2,
+    )
+    cropped_image_size_w = width
+    cropped_image_size_h = height
+    cropped_image_size = height
 
-        ### laod test dataset
-        test_dir = file_parent_dir + 'val/'
-        test_images = [image for image in sorted(os.listdir(os.path.join(test_dir, "images"))) if image[-4:]=='.jpg']
-        # test_annots = []
-        # for image in test_images:
-        #     annot = image[:-4] + '.txt'
-        #     test_annots.append(annot)
-        # test_images = pd.Series(test_images, name='test_images')
-        # test_annots = pd.Series(test_annots, name='test_annots')
-        # test_df = pd.concat([test_images, test_annots], axis=1)
-        # test_df = pd.DataFrame(test_df)
-        test_transform_img = A.Compose([
-            A.Resize(width=height, height=height),
-            ToTensorV2(p=1.0)
-        ])
-        
-        test_dataset = ImagesDataset(
-            transform=test_transform_img,
-            files_dir=test_dir
-        )
+    ### laod test dataset
+    # test_dir = file_parent_dir + 'val/'
+    # test_images = [image for image in sorted(os.listdir(os.path.join(test_dir, "images"))) if image[-4:]=='.jpg']
+    # test_annots = []
+    # for image in test_images:
+    #     annot = image[:-4] + '.txt'
+    #     test_annots.append(annot)
+    # test_images = pd.Series(test_images, name='test_images')
+    # test_annots = pd.Series(test_annots, name='test_annots')
+    # test_df = pd.concat([test_images, test_annots], axis=1)
+    # test_df = pd.DataFrame(test_df)
+    test_transform_img = A.Compose([
+        A.Resize(width=height, height=height),
+        ToTensorV2(p=1.0)
+    ])
+    
+    # test_dataset = ImagesDataset(
+    #     transform=test_transform_img,
+    #     files_dir=test_dir
+    # )
 
-        test_loader = DataLoader(
-            dataset=test_dataset,
-            batch_size=batch_size,
-            shuffle=True,
-            drop_last=False,
-            worker_init_fn=seed_worker,
-            generator=g
-        )
-    else:
-        raise NotImplementedError
+    # test_loader = DataLoader(
+    #     dataset=test_dataset,
+    #     batch_size=batch_size,
+    #     shuffle=True,
+    #     drop_last=False,
+    #     worker_init_fn=seed_worker,
+    #     generator=g
+    # )
 
     ### load task model
     task_model = YoloV1(split_size=7, num_boxes=2, num_classes=3).to(device)
@@ -188,7 +185,7 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
     for ep in range(num_epochs):
         ep_loss = []
         
-        for batch_idx, data in enumerate(tqdm(train_loader)):
+        for batch_idx, data in enumerate(track(train_loader, description="Training: ")):
             # obs_112_0_255, out = obs.to(device), out.to(device)
             # obs = obs_112_0_255 / 255.0
             # o1_batch = torch.zeros(obs.shape[0], obs.shape[1], cropped_image_size_h, cropped_image_size_h).to(device)
@@ -231,12 +228,13 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
 
             
             
-            obs_112_0_255 = obs_pred.clip(0, 1) * 255.0 ##################### important: clip the value to 0-255
-            obs_pred_448_0_255 = F.interpolate(obs_112_0_255, size=(448, 448)) ### resize to 448x448
-            out_pred = task_model(obs_pred_448_0_255)
-            task_loss = loss_fn(out_pred, out)
-            loss = beta_task * task_loss + beta_rec * loss_rec + beta_kl * (kl1 + kl2) + weight_cross_penalty * loss_cor
-
+            # obs_112_0_255 = obs_pred.clip(0, 1) * 255.0 ##################### important: clip the value to 0-255
+            # obs_pred_448_0_255 = F.interpolate(obs_112_0_255, size=(448, 448)) ### resize to 448x448
+            # out_pred = task_model(obs_pred_448_0_255)
+            # task_loss = loss_fn(out_pred, out)
+            # loss = beta_task * task_loss + beta_rec * loss_rec + beta_kl * (kl1 + kl2) + weight_cross_penalty * loss_cor
+            # print(loss_rec ,kl1 , kl2, weight_cross_penalty , loss_cor)
+            loss =  beta_rec * loss_rec + beta_kl * (kl1 + kl2) + weight_cross_penalty * loss_cor
             ### check models' train/eval modes
             if (not DVAE_awa.training) or task_model.training:
                 print(DVAE_awa.training, task_model.training)
@@ -248,7 +246,7 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
 
             ### log tensorboard
             summary_writer.add_scalar('loss', loss, cur_iter)
-            summary_writer.add_scalar('task', task_loss, cur_iter)
+            # summary_writer.add_scalar('task', task_loss, cur_iter)
             summary_writer.add_scalar('Rec', loss_rec, cur_iter)
             summary_writer.add_scalar('kl1/var', kl1, cur_iter)
             summary_writer.add_scalar('kl2/invar', kl2, cur_iter)
@@ -262,7 +260,7 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
         print("Epoch: {}, Loss: {}".format(ep, np.mean(ep_loss)))
 
         ### save model
-        if (ep + 1) % save_interval == 0 or (ep + 1) == 20 or ep == 0:
+        # if (ep + 1) % save_interval == 0 or (ep + 1) == 20 or ep == 0:
             ### test on train set
             # if "Joint" in vae_model:
             #     pred_boxes, target_boxes = get_bboxes_AE(
@@ -281,29 +279,29 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
             # print(train_mean_avg_prec, ep)
 
             ### test on test set
-            if "Joint" in vae_model:
-                pred_boxes, target_boxes = get_bboxes_AE(
-                    test_loader, task_model, DVAE_awa, True, iou_threshold=iou, threshold=conf, device=device,
-                    cropped_image_size_w=cropped_image_size, cropped_image_size_h=cropped_image_size
-                )
-            else:
-                pred_boxes, target_boxes = get_bboxes_AE(
-                    test_loader, task_model, DVAE_awa, False, iou_threshold=iou, threshold=conf, device=device,
-                    cropped_image_size_w = cropped_image_size_w, cropped_image_size_h = cropped_image_size_h
-                )
-            test_mean_avg_prec = mean_average_precision(
-                pred_boxes, target_boxes, iou_threshold=0.5, box_format="midpoint"
-            )
-            summary_writer.add_scalar(f'test_mean_avg_prec_{iou}_{conf}', test_mean_avg_prec, ep)
-            print(test_mean_avg_prec, ep)
+        #     if "Joint" in vae_model:
+        #         pred_boxes, target_boxes = get_bboxes_AE(
+        #             test_loader, task_model, DVAE_awa, True, iou_threshold=iou, threshold=conf, device=device,
+        #             cropped_image_size_w=cropped_image_size, cropped_image_size_h=cropped_image_size
+        #         )
+        #     else:
+        #         pred_boxes, target_boxes = get_bboxes_AE(
+        #             test_loader, task_model, DVAE_awa, False, iou_threshold=iou, threshold=conf, device=device,
+        #             cropped_image_size_w = cropped_image_size_w, cropped_image_size_h = cropped_image_size_h
+        #         )
+        #     test_mean_avg_prec = mean_average_precision(
+        #         pred_boxes, target_boxes, iou_threshold=0.5, box_format="midpoint"
+        #     )
+        #     summary_writer.add_scalar(f'test_mean_avg_prec_{iou}_{conf}', test_mean_avg_prec, ep)
+        #     print(test_mean_avg_prec, ep)
 
-            torch.save(DVAE_awa.state_dict(), model_path + f'/DVAE_awa-{ep}.pth')  
+        #     torch.save(DVAE_awa.state_dict(), model_path + f'/DVAE_awa-{ep}.pth')  
 
-        ### export figure
-        if (ep + 1) % save_interval == 0 or ep == num_epochs - 1 or ep == 0:
-            max_imgs = min(batch_size, 8)
-            vutils.save_image(torch.cat([obs[:max_imgs], obs_pred[:max_imgs]], dim=0).data.cpu(),
-                '{}/image_{}.jpg'.format(fig_dir, ep), nrow=8)
+        # ### export figure
+        # if (ep + 1) % save_interval == 0 or ep == num_epochs - 1 or ep == 0:
+        #     max_imgs = min(batch_size, 8)
+        #     vutils.save_image(torch.cat([obs[:max_imgs], obs_pred[:max_imgs]], dim=0).data.cpu(),
+        #         '{}/image_{}.jpg'.format(fig_dir, ep), nrow=8)
 
     return
 
@@ -319,10 +317,10 @@ if __name__ == "__main__":
     parser.add_argument("-z", "--z_dim", type=int, help="latent dimensions", default=80)
     parser.add_argument("-l", "--lr", type=float, help="learning rate", default=1e-4)
     parser.add_argument("-bs", "--batch_size", type=int, help="batch size", default=8)
-    parser.add_argument("-r", "--beta_rec", type=float, help="beta coefficient for the reconstruction loss", default=0.0)
-    parser.add_argument("-k", "--beta_kl", type=float, help="beta coefficient for the kl divergence", default=0.0)
+    parser.add_argument("-r", "--beta_rec", type=float, help="beta coefficient for the reconstruction loss", default=0.1)
+    parser.add_argument("-k", "--beta_kl", type=float, help="beta coefficient for the kl divergence", default=0.1)
     parser.add_argument("-t", "--beta_task", type=float, help="beta coefficient for the task loss", default=0.1)
-    parser.add_argument("-corpen", "--cross_penalty", type=float, help="cross-correlation penalty", default=0.0)
+    parser.add_argument("-corpen", "--cross_penalty", type=float, help="cross-correlation penalty", default=0)
     parser.add_argument("-s", "--seed", type=int, help="seed", default=0)
     parser.add_argument("-c", "--device", type=int, help="device: -1 for cpu, 0 and up for specific cuda device", default=0)
     parser.add_argument("-vae", "--vae_model", type=str, help="vae model: CNNBasedVAE or SVAE", default="ResBasedVAE")

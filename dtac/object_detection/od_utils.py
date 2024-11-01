@@ -6,37 +6,109 @@ from PIL import Image
 import numpy as np
 import random
 import os
-
+import pandas as pd
 from dtac.object_detection.yolov8_loss import Loss
 from dtac.DPCA_torch import DistriburedPCA, JointPCA, DistriburedPCAEQ, JointPCAEQ, DistriburedPCAEQ4
-
+import torchaudio
+from torch.utils.data import Dataset
 def seed_worker(worker_id):
     worker_seed = torch.initial_seed() % 2**32
     np.random.seed(worker_seed)
     random.seed(worker_seed)
 
+
+
+class AudioDataset(Dataset):
+    def __init__(self, files_dir, S=7, B=2, C=3, transform=None, clean_audio_folder="", noisy_audio_folder=""):
+        self.files_dir = files_dir
+        print(self.files_dir)
+        self.clean_audio_folder = clean_audio_folder
+        self.noisy_audio_folder = noisy_audio_folder
+        
+        # List all clean audio files
+        clean_audio_list = [audio for audio in sorted(os.listdir(os.path.join(files_dir, clean_audio_folder))) if audio.endswith('.wav')]
+        
+        # Initialize DataFrames for clean and noisy audio
+        self.clean_audio_dataframe = pd.DataFrame(pd.Series(clean_audio_list))
+        
+        # Print sample data to check loading
+        print(self.clean_audio_dataframe.head())
+        
+        self.transform = transform
+        self.S = S
+        self.B = B
+        self.C = C
+        self.save_flag = True
+
+    def __len__(self):
+        return len(self.clean_audio_dataframe)
+
+    def __getitem__(self, index):
+        # Define paths for the clean audio and noisy audio files
+        audio_path = os.path.join(self.files_dir, self.clean_audio_folder, self.clean_audio_dataframe.iloc[index, 0])
+        noisy_audio_path_1 = os.path.join(self.files_dir, self.noisy_audio_folder, "spectrograms_S02_U02CH1", self.clean_audio_dataframe.iloc[index, 0])
+        noisy_audio_path_2 = os.path.join(self.files_dir, self.noisy_audio_folder, "spectrograms_S02_U03CH1", self.clean_audio_dataframe.iloc[index, 0])
+
+        # Load audio files
+        audio_waveform, sample_rate = torchaudio.load(audio_path)
+        noisy_waveform_1, _ = torchaudio.load(noisy_audio_path_1)
+        noisy_waveform_2, _ = torchaudio.load(noisy_audio_path_2)
+
+        # Crop dimensions (adjusting for audio segments, not images)
+        left_crop = int(0.1 * sample_rate)     # 0.1 seconds into the audio
+        right_crop = int(0.2 * sample_rate)    # trim 0.2 seconds off the end
+        audio_waveform = audio_waveform[:, left_crop:-right_crop]
+        noisy_waveform_1 = noisy_waveform_1[:, left_crop:-right_crop]
+        noisy_waveform_2 = noisy_waveform_2[:, left_crop:-right_crop]
+
+        # Apply transformations if provided
+        if self.transform is not None:
+            # Apply transformations to audio waveforms if using `torchaudio.transforms`
+            transformed_audio = self.transform(audio_waveform)
+            transformed_noisy_audio_1 = self.transform(noisy_waveform_1)
+            transformed_noisy_audio_2 = self.transform(noisy_waveform_2)
+        else:
+            # If no transformation, keep waveforms as they are
+            transformed_audio = audio_waveform
+            transformed_noisy_audio_1 = noisy_waveform_1
+            transformed_noisy_audio_2 = noisy_waveform_2
+
+        # Save transformed audio waveforms once for verification
+        if self.save_flag:
+            torchaudio.save("transformed_clean_audio.wav", transformed_audio, sample_rate)
+            torchaudio.save("transformed_noisy_audio_1.wav", transformed_noisy_audio_1, sample_rate)
+            torchaudio.save("transformed_noisy_audio_2.wav", transformed_noisy_audio_2, sample_rate)
+            self.save_flag = False
+
+        # Return a dictionary or tuple with all audio waveforms
+        return {
+            "clean_audio": transformed_audio,
+            "noisy_audio_1": transformed_noisy_audio_1,
+            "noisy_audio_2": transformed_noisy_audio_2
+        }
 class ImagesDataset(torch.utils.data.Dataset):
     def __init__(self, files_dir, S=7, B=2, C=3, transform=None, clean_image_folder = "",noisy_image_folder="" ):
         self.files_dir = files_dir
         print(self.files_dir)
         self.clean_image_folder = clean_image_folder
         self.noisy_image_folder = noisy_image_folder
-        clean_image_list = [image for image in sorted(os.listdir(os.path.join(files_dir, clean_image_folder))) if image[-4:]=='.jpg']
-        # noisy_ch1_image_list = [image for image in sorted(os.listdir(os.path.join(files_dir, noisy_image_folder, "CH_1"))) if image[-4:]=='.jpg']
-        # noisy_ch2_image_list = [image for image in sorted(os.listdir(os.path.join(files_dir, noisy_image_folder, "CH_2"))) if image[-4:]=='.jpg']
-        # noisy_ch3_image_list = [image for image in sorted(os.listdir(os.path.join(files_dir, noisy_image_folder, "CH_3"))) if image[-4:]=='.jpg']
-        # noisy_ch4_image_list = [image for image in sorted(os.listdir(os.path.join(files_dir, noisy_image_folder, "CH_4"))) if image[-4:]=='.jpg']
+        clean_image_list = [image for image in sorted(os.listdir(os.path.join(files_dir, clean_image_folder))) if image[-4:]=='.png']
+        # noisy_ch1_image_list = [image for image in sorted(os.listdir(os.path.join(files_dir, noisy_image_folder, "CH_1"))) if image[-4:]=='.png']
+        # noisy_ch2_image_list = [image for image in sorted(os.listdir(os.path.join(files_dir, noisy_image_folder, "CH_2"))) if image[-4:]=='.png']
+        # noisy_ch3_image_list = [image for image in sorted(os.listdir(os.path.join(files_dir, noisy_image_folder, "CH_3"))) if image[-4:]=='.png']
+        # noisy_ch4_image_list = [image for image in sorted(os.listdir(os.path.join(files_dir, noisy_image_folder, "CH_4"))) if image[-4:]=='.png']
         self.clean_image_dataframe = pd.DataFrame(pd.Series(clean_image_list))
         # noisy_ch1_image_dataframe = pd.DataFrame(pd.Series(noisy_ch1_image_list))
         # noisy_ch2_image_dataframe = pd.DataFrame(pd.Series(noisy_ch2_image_list))
         # noisy_ch3_image_dataframe = pd.DataFrame(pd.Series(noisy_ch3_image_list))
         # noisy_ch4_image_dataframe = pd.DataFrame(pd.Series(noisy_ch4_image_list))
-
-        images = pd.Series(images, name='images')
+        print(self.clean_image_dataframe.head())
+        # images = pd.Series(images, name='images')
         self.transform = transform
         self.S = S
         self.B = B
         self.C = C
+        self.save_flag = True
 
     def __len__(self):
         return len(self.clean_image_dataframe)
@@ -44,10 +116,10 @@ class ImagesDataset(torch.utils.data.Dataset):
     def __getitem__(self, index):
         # Define paths for the clean image and noisy images
         img_path = os.path.join(self.files_dir, self.clean_image_folder, self.clean_image_dataframe.iloc[index, 0])
-        noisy_img_path_1 = os.path.join(self.files_dir, self.noisy_image_folder, "folder_1", self.clean_image_dataframe.iloc[index, 0])
-        noisy_img_path_2 = os.path.join(self.files_dir, self.noisy_image_folder, "folder_2", self.clean_image_dataframe.iloc[index, 0])
-        noisy_img_path_3 = os.path.join(self.files_dir, self.noisy_image_folder, "folder_3", self.clean_image_dataframe.iloc[index, 0])
-        noisy_img_path_4 = os.path.join(self.files_dir, self.noisy_image_folder, "folder_4", self.clean_image_dataframe.iloc[index, 0])  # Corrected path
+        noisy_img_path_1 = os.path.join(self.files_dir, self.noisy_image_folder, "spectrograms_S02_U02CH1", self.clean_image_dataframe.iloc[index, 0])
+        noisy_img_path_2 = os.path.join(self.files_dir, self.noisy_image_folder, "spectrograms_S02_U03CH1", self.clean_image_dataframe.iloc[index, 0])
+        # noisy_img_path_3 = os.path.join(self.files_dir, self.noisy_image_folder, "folder_3", self.clean_image_dataframe.iloc[index, 0])
+        # noisy_img_path_4 = os.path.join(self.files_dir, self.noisy_image_folder, "folder_4", self.clean_image_dataframe.iloc[index, 0])  # Corrected path
 
         # Load and convert clean image
         image = Image.open(img_path).convert("RGB")
@@ -55,40 +127,61 @@ class ImagesDataset(torch.utils.data.Dataset):
         # Load and convert noisy images
         noisy_image_1 = Image.open(noisy_img_path_1).convert("RGB")
         noisy_image_2 = Image.open(noisy_img_path_2).convert("RGB")
-        noisy_image_3 = Image.open(noisy_img_path_3).convert("RGB")
-        noisy_image_4 = Image.open(noisy_img_path_4).convert("RGB")
+        # noisy_image_3 = Image.open(noisy_img_path_3).convert("RGB")
+        # noisy_image_4 = Image.open(noisy_img_path_4).convert("RGB")
 
+        # Crop dimensions
+        left_crop = 80    # Pixels to crop from the left
+        right_crop = 200   # Pixels to crop from the right
+        top_crop = 40     # Pixels to crop from the top
+        bottom_crop = 60   # Pixels to crop from the bottom
+        image = image.crop((left_crop, top_crop, image.width - right_crop, image.height - bottom_crop))
+        noisy_image_1 = noisy_image_1.crop((left_crop, top_crop, noisy_image_1.width - right_crop, noisy_image_1.height - bottom_crop))
+        noisy_image_2 = noisy_image_2.crop((left_crop, top_crop, noisy_image_2.width - right_crop, noisy_image_2.height - bottom_crop))
         # Apply transformations if provided
         if self.transform is not None:
             # Convert images to numpy arrays for transformation
             image = np.array(image)
             noisy_image_1 = np.array(noisy_image_1)
             noisy_image_2 = np.array(noisy_image_2)
-            noisy_image_3 = np.array(noisy_image_3)
-            noisy_image_4 = np.array(noisy_image_4)
+            # noisy_image_3 = np.array(noisy_image_3)
+            # noisy_image_4 = np.array(noisy_image_4)
 
             # Apply transformations
             transformed_image = self.transform(image=image)['image']
             transformed_noisy_image_1 = self.transform(image=noisy_image_1)['image']
             transformed_noisy_image_2 = self.transform(image=noisy_image_2)['image']
-            transformed_noisy_image_3 = self.transform(image=noisy_image_3)['image']
-            transformed_noisy_image_4 = self.transform(image=noisy_image_4)['image']
+            # transformed_noisy_image_3 = self.transform(image=noisy_image_3)['image']
+            # transformed_noisy_image_4 = self.transform(image=noisy_image_4)['image']
 
         else:
             # If no transformation, keep images as they are
             transformed_image = image
             transformed_noisy_image_1 = noisy_image_1
             transformed_noisy_image_2 = noisy_image_2
-            transformed_noisy_image_3 = noisy_image_3
-            transformed_noisy_image_4 = noisy_image_4
+            # transformed_noisy_image_3 = noisy_image_3
+            # transformed_noisy_image_4 = noisy_image_4
+        if self.save_flag:
+            save_transformed_image = transformed_image.permute(1, 2, 0).numpy().astype(np.uint8)
+            save_transformed_noisy_image_1 = transformed_noisy_image_1.permute(1, 2, 0).numpy().astype(np.uint8)
+            save_transformed_noisy_image_2 = transformed_noisy_image_2.permute(1, 2, 0).numpy().astype(np.uint8)
+            Image.fromarray(save_transformed_image).save("original_clean_image.png")
+            Image.fromarray(save_transformed_noisy_image_1).save("transformed_noisy_image_1.png")
+            Image.fromarray(save_transformed_noisy_image_2).save("transformed_noisy_image_2.png")
+            self.save_flag = False
 
         # Return a dictionary or tuple with all images
+        # print("-------------------------------------")
+        # print("Cleanr image shape",transformed_image.shape)
+        # print("noisy image 1 shape",transformed_noisy_image_1.shape)
+        # print("noisy image 2 shape",transformed_noisy_image_2.shape)
+        # print("-------------------------------------")
         return {
             "clean_image": transformed_image,
             "noisy_image_1": transformed_noisy_image_1,
             "noisy_image_2": transformed_noisy_image_2,
-            "noisy_image_3": transformed_noisy_image_3,
-            "noisy_image_4": transformed_noisy_image_4
+            # "noisy_image_3": transformed_noisy_image_3,
+            # "noisy_image_4": transformed_noisy_image_4
         }
 
 
@@ -1149,7 +1242,7 @@ if __name__ == '__main__':
     file_parent_dir = f'../../airbus_dataset/512x512_overlap64_percent0.3_/'
     files_dir = file_parent_dir + 'train/' # 'train/'
     images = [image for image in sorted(os.listdir(files_dir))
-                if image[-4:]=='.jpg']
+                if image[-4:]=='.png']
     annots = []
     for image in images:
         annot = image[:-4] + '.txt'

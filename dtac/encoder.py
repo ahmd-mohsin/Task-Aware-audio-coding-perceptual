@@ -11,14 +11,14 @@ class ResEncoder(nn.Module):
     def __init__(self, input_shape, feature_dim, n_downsamples=4, n_res_blocks=3,
                 n_hidden_layers=2, hidden_size=256):
         super().__init__()
-        if 'airbus' in os.getcwd():
-            num_filters=(16, 32, 64, 128)
+        # if 'airbus' in os.getcwd():
+        num_filters=(16, 32, 64, 128)
             # num_filters=(12, 24, 48, 96) # for E2D2 only
-        elif 'PnP' in os.getcwd():
-            num_filters=(8, 16, 32, 64) # seed 0
+        # elif 'PnP' in os.getcwd():
+            # num_filters=(8, 16, 32, 64) # seed 0
             # num_filters=(16, 32, 64, 128) # seed 10
-        else:
-            raise ValueError('Unknown dataset')
+        # else:
+        #     raise ValueError('Unknown dataset')
         assert len(input_shape) == 3
         assert n_downsamples == len(num_filters)
         self.input_shape = input_shape

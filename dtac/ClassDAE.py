@@ -439,8 +439,8 @@ class ResE2D1(nn.Module):
         super().__init__()
         self.enc1 = ResEncoder(obs_shape1, z_dim1, n_downsamples=n_samples, n_res_blocks=n_res_blocks)
         self.enc2 = ResEncoder(obs_shape2, z_dim2, n_downsamples=n_samples, n_res_blocks=n_res_blocks)
-        self.dec = ResDecoder((obs_shape1[0] + obs_shape2[0], obs_shape1[1], obs_shape1[2]), (z_dim1 + z_dim2),
-                                n_upsamples=n_samples, n_res_blocks=n_res_blocks)
+        # self.dec = ResDecoder((obs_shape1[0] + obs_shape2[0], obs_shape1[1], obs_shape1[2]), (z_dim1 + z_dim2), n_upsamples=n_samples, n_res_blocks=n_res_blocks)
+        self.dec = ResDecoder((obs_shape1[0], obs_shape1[1], obs_shape1[2]), (z_dim1 + z_dim2), n_upsamples=n_samples, n_res_blocks=n_res_blocks)
 
     def forward(self, obs1, obs2, clearn_image, random_bottle_neck=False):
         z1, _ = self.enc1(obs1)
@@ -486,6 +486,7 @@ class ResE2D1(nn.Module):
         z_sample = torch.cat((z1, z2), dim=1)
 
         obs_dec = self.dec(z_sample)
+        # print(obs.shape, obs_dec.shape)
         mse = 0.5 * torch.mean((obs - obs_dec) ** 2, dim=(1, 2, 3))
         psnr = PSNR(obs_dec, obs)
 
