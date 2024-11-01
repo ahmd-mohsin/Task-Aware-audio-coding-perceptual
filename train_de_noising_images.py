@@ -20,6 +20,28 @@ from dtac.object_detection.od_utils import *
 CLEAN_SPEECH_SIGNAL_FOLDER_NAME = "clean_images/spectrograms_S02_P05"
 NOISY_SPEECH_SIGNAL_FOLDER_NAME = "noisy_images"
 
+def save_checkpoint(model, optimizer, epoch, loss, model_path, filename):
+    """Save model checkpoint with additional training info"""
+    checkpoint = {
+        'epoch': epoch,
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        'loss': loss,
+    }
+    if not os.path.exists(model_path):
+        os.makedirs(model_path)
+    torch.save(checkpoint, os.path.join(model_path, filename))
+
+def load_checkpoint(model, optimizer, model_path, filename):
+    """Load model checkpoint and return epoch and loss"""
+    checkpoint_path = os.path.join(model_path, filename)
+    if os.path.exists(checkpoint_path):
+        checkpoint = torch.load(checkpoint_path)
+        model.load_state_dict(checkpoint['model_state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        return checkpoint['epoch'], checkpoint['loss']
+    return 0, None
+
 def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, beta_kl=1.0, beta_rec=0.0, beta_task=1.0, weight_cross_penalty=0.1, 
                  device=0, save_interval=30, lr=2e-4, seed=0, vae_model="CNNBasedVAE", width=448, height=448, randpca=False,):
     ### set paths
@@ -27,8 +49,8 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
 
     LOG_DIR = f'./summary/{dataset}_{z_dim}_randPCA_{model_type}_{vae_model}{width}x{height}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
     fig_dir = f'./figures/{dataset}_{z_dim}_randPCA_{model_type}_{vae_model}{width}x{height}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
-    task_model_path = "/home/pl22767/project/dtac-dev/airbus_scripts/models/YoloV1_224x224/yolov1_aug_0.05_0.05_resize448_224x224_ep60_map0.98_0.83.pth"
-    # task_model_path = "/home/ahsan/Ahsan/PhD work/AAAI_2025_PAPER/Task-aware-Distributed-Source-Coding/airbus_scripts/yolov8x.pt"
+    #task_model_path = "/home/pl22767/project/dtac-dev/airbus_scripts/models/YoloV1_224x224/yolov1_aug_0.05_0.05_resize448_224x224_ep60_map0.98_0.83.pth"
+    task_model_path = "/home/ahmed/Task-aware-Distributed-Source-Coding/airbus_scripts/yolov5s.pt"
 
     model_path = f'./models/{dataset}_{z_dim}_randPCA_{model_type}_{vae_model}{width}x{height}_kl{beta_kl}_rec{beta_rec}_task{beta_task}_bs{batch_size}_cov{weight_cross_penalty}_lr{lr}_seed{seed}'
     if not randpca:
@@ -179,6 +201,16 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
 
     DVAE_awa.train()
     optimizer = optim.Adam(DVAE_awa.parameters(), lr=lr)
+    # Try to load the latest checkpoint
+    latest_checkpoint = 'latest_checkpoint.pth'
+    start_epoch, last_loss = load_checkpoint(DVAE_awa, optimizer, model_path, latest_checkpoint)
+    
+    if last_loss is not None:
+        print(f"Resuming training from epoch {start_epoch} with loss {last_loss}")
+    else:
+        start_epoch = 0
+        print("Starting training from scratch")
+
 
     cur_iter = 0
     loss_fn = YoloLoss()
@@ -256,9 +288,8 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
             ep_loss.append(loss.item())
             cur_iter += 1
 
-        ### print loss
-        print("Epoch: {}, Loss: {}".format(ep, np.mean(ep_loss)))
-
+        epoch_loss = np.mean(ep_loss)
+        print(f"Epoch: {ep}, Loss: {epoch_loss}")
         ### save model
         # if (ep + 1) % save_interval == 0 or (ep + 1) == 20 or ep == 0:
             ### test on train set
@@ -302,6 +333,39 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
         #     max_imgs = min(batch_size, 8)
         #     vutils.save_image(torch.cat([obs[:max_imgs], obs_pred[:max_imgs]], dim=0).data.cpu(),
         #         '{}/image_{}.jpg'.format(fig_dir, ep), nrow=8)
+
+        # Save checkpoint after every epoch
+        save_checkpoint(
+            DVAE_awa, 
+            optimizer, 
+            ep, 
+            epoch_loss, 
+            model_path, 
+            f'checkpoint_epoch_{ep}.pth'
+        )
+        
+        # Also save as latest checkpoint (overwrite)
+        save_checkpoint(
+            DVAE_awa, 
+            optimizer, 
+            ep, 
+            epoch_loss, 
+            model_path, 
+            'latest_checkpoint.pth'
+        )
+
+        # Save visualization every save_interval epochs
+        if (ep + 1) % save_interval == 0 or ep == num_epochs - 1:
+            max_imgs = min(batch_size, 8)
+            vutils.save_image(
+                torch.cat([clean_image[:max_imgs], obs_[:max_imgs]], dim=0).data.cpu(),
+                '{}/image_{}.jpg'.format(fig_dir, ep), 
+                nrow=8
+            )
+
+    print("Training completed!")
+    return
+
 
     return
 

@@ -18,8 +18,8 @@ from dtac.ClassDAE import *
 from dtac.object_detection.yolo_model import YoloV1, YoloLoss
 from dtac.object_detection.od_utils import *
 from audio_DAE import DAE
-CLEAN_SPEECH_SIGNAL_FOLDER_NAME = "clean_images/spectrograms_S02_P05"
-NOISY_SPEECH_SIGNAL_FOLDER_NAME = "noisy_images"
+CLEAN_SPEECH_SIGNAL_FOLDER_NAME = "/home/ahmed/Task-Aware-audio-coding-perceptual/Data/clean_images"
+NOISY_SPEECH_SIGNAL_FOLDER_NAME = "/home/ahmed/Task-Aware-audio-coding-perceptual/Data/noisy_images"
 
 def train_awa_vae(batch_size=32, num_epochs=250, beta_kl=1.0, beta_rec=0.0, weight_cross_penalty=0.1, 
                  device=0, lr=2e-4, seed=0, height=448, randpca=False, z_dim = 64):
