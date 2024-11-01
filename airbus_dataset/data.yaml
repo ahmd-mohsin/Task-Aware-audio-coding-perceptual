@@ -1,0 +1,10 @@
+
+# train and val datasets (image directory or *.txt file with image paths)
+train: /home/ahmed/Task-aware-Distributed-Source-Coding/airbus_dataset/224x224_overlap28_percent0.3/train
+val: /home/ahmed/Task-aware-Distributed-Source-Coding/airbus_dataset/224x224_overlap28_percent0.3/val
+
+# number of classes
+nc: 1
+
+# class names
+names: ['Aircraft']
