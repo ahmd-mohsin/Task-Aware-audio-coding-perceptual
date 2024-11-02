@@ -7,6 +7,114 @@ from collections import OrderedDict
 from dtac.encoder import ResEncoder
 from dtac.decoder import ResDecoder
 
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+class SpectrogramImageLoss(nn.Module):
+    def __init__(self, freq_weighted=True, time_smoothness=True):
+        super().__init__()
+        self.freq_weighted = freq_weighted
+        self.time_smoothness = time_smoothness
+        
+    def get_frequency_weights(self, height):
+        """
+        Creates weights that emphasize lower frequencies more
+        as they typically contain more important information in spectrograms
+        """
+        # Exponential decay weights for frequency bins
+        # Lower frequencies (bottom of image) get higher weights
+        weights = torch.exp(-torch.arange(height) / (height / 3))
+        return weights.view(-1, 1)  # Shape: [height, 1]
+    
+    def smoothness_loss(self, x):
+        """
+        Compute temporal smoothness loss to avoid sudden changes
+        """
+        # Compute gradients in time direction
+        time_gradient = torch.abs(x[:, :, :, 1:] - x[:, :, :, :-1])
+        return torch.mean(time_gradient)
+    
+    def forward(self, pred, target):
+        """
+        pred, target: Spectrogram images [batch, channels, freq_bins, time_steps]
+        """
+        batch_size = pred.shape[0]
+        height = pred.shape[2]  # frequency dimension
+        
+        # Basic reconstruction loss (L1 + L2)
+        l1_loss = F.l1_loss(pred, target)
+        l2_loss = F.mse_loss(pred, target)
+        
+        # Initialize total loss
+        total_loss = l1_loss + 0.5 * l2_loss
+        
+        # Apply frequency-dependent weighting
+        if self.freq_weighted:
+            weights = self.get_frequency_weights(height).to(pred.device)
+            freq_weighted_diff = torch.abs(pred - target) * weights[None, None, :, None]
+            freq_loss = torch.mean(freq_weighted_diff)
+            total_loss = total_loss + 0.5 * freq_loss
+            
+        # Add temporal smoothness constraint
+        if self.time_smoothness:
+            pred_smoothness = self.smoothness_loss(pred)
+            target_smoothness = self.smoothness_loss(target)
+            smoothness_loss = torch.abs(pred_smoothness - target_smoothness)
+            total_loss = total_loss + 0.2 * smoothness_loss
+        
+        return {
+            'total_loss': total_loss,
+            'l1_loss': l1_loss,
+            'l2_loss': l2_loss,
+            'freq_weighted_loss': freq_loss if self.freq_weighted else 0.0,
+            'smoothness_loss': smoothness_loss if self.time_smoothness else 0.0
+        }
+
+class E1D1(nn.Module):
+    def __init__(self, obs_shape: tuple, z_dim: int, num_layers=3, num_filters=64, 
+                 n_hidden_layers=2, hidden_size=128):
+        super().__init__()
+        self.enc = CNNEncoder(obs_shape, z_dim, num_layers, num_filters, n_hidden_layers, hidden_size)
+        self.dec = CNNDecoder(z_dim, (obs_shape[0], obs_shape[1], obs_shape[2]), 
+                             num_layers, num_filters, n_hidden_layers, hidden_size)
+        self.spec_loss = SpectrogramImageLoss(freq_weighted=True, time_smoothness=True)
+
+    def forward(self, obs):
+        z1, _ = self.enc(obs)
+
+        # Split latent space
+        num_features = z1.shape[1] // 2
+        batch_size = z1.shape[0]
+        z1_private = z1[:, :num_features]
+        z1_share = z1[:, num_features:]
+
+        # Decode 
+        z_sample = torch.cat((z1_private, z1_share), dim=1)
+        obs_dec = self.dec(z_sample)
+        
+        # Calculate losses
+        spec_losses = self.spec_loss(obs_dec, obs)
+        mse = 0.5 * torch.mean((obs - obs_dec) ** 2, dim=(1, 2, 3))
+        psnr = PSNR(obs_dec, obs)
+
+        # Normalize latent space
+        z_sample = z_sample - z_sample.mean(dim=0)
+        z_sample = z_sample / torch.norm(z_sample, p=2)
+        
+        # Nuclear loss
+        nuc_loss = torch.norm(z_sample, p='nuc', dim=(0, 1)) / batch_size
+
+        return (
+            obs_dec, 
+            torch.mean(mse), 
+            nuc_loss,
+            spec_losses['total_loss'],
+            spec_losses,  # Dictionary containing individual loss components
+            psnr
+        )
+
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
