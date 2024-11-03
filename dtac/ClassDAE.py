@@ -90,12 +90,11 @@ class E1D1(nn.Module):
                  n_hidden_layers=2, hidden_size=128):
         super().__init__()
         self.enc = CNNEncoder(obs_shape, z_dim, num_layers, num_filters, n_hidden_layers, hidden_size)
-        self.dec = CNNDecoder(z_dim, (obs_shape[0], obs_shape[1], obs_shape[2]), 
-                             num_layers, num_filters, n_hidden_layers, hidden_size)
-
+        self.dec = CNNDecoder(z_dim, obs_shape, num_layers, num_filters, n_hidden_layers, hidden_size)
         self.spec_loss = SpectrogramImageLoss()
+
     def forward(self, obs):
-        z1, _ = self.enc(obs)
+        z1, _ = self.enc(obs)  # Encode concatenated image
 
         # Split latent space
         num_features = z1.shape[1] // 2
@@ -105,9 +104,9 @@ class E1D1(nn.Module):
 
         # Decode 
         z_sample = torch.cat((z1_private, z1_share), dim=1)
-        obs_dec = self.dec(z_sample)
+        obs_dec = self.dec(z_sample)  # Decode back to concatenated image
         
-        # Calculate losses
+        # Calculate losses - comparing reconstruction with input
         spec_losses = self.spec_loss(obs_dec, obs)
         mse = 0.5 * torch.mean((obs - obs_dec) ** 2, dim=(1, 2, 3))
         
@@ -120,14 +119,77 @@ class E1D1(nn.Module):
         # Nuclear loss
         nuc_loss = torch.norm(z_sample, p='nuc', dim=(0, 1)) / batch_size
 
+        dimension_info = {
+            'z1_private': z1_private.shape,
+            'z1_share': z1_share.shape,
+            'z_sample': z_sample.shape
+        }
+
         return (
-            obs_dec, 
-            torch.mean(mse), 
-            nuc_loss,
-            spec_losses['total_loss'],
-            spec_losses,  # Dictionary containing individual loss components
-            psnr
+            obs_dec,                    # Reconstructed concatenated image
+            torch.mean(mse),           # Reconstruction loss
+            nuc_loss,                  # Nuclear norm loss
+            0.0,                       # KL divergence 2 (placeholder)
+            0.0,                       # Correlation loss (placeholder)
+            spec_losses['total_loss'], # Spectrogram total loss
+            spec_losses,               # Dictionary of spectrogram losses
+            psnr,                      # Peak Signal-to-Noise Ratio
+            dimension_info             # Dimension information
         )
+    
+    # class E1D1(nn.Module):
+    #     def __init__(self, obs_shape: tuple, z_dim: int, num_layers=3, num_filters=64, 
+    #                 n_hidden_layers=2, hidden_size=128):
+    #         super().__init__()
+    #         self.enc = CNNEncoder(obs_shape, z_dim, num_layers, num_filters, n_hidden_layers, hidden_size)
+    #         self.dec = CNNDecoder(z_dim, (obs_shape[0], obs_shape[1], obs_shape[2]), 
+    #                             num_layers, num_filters, n_hidden_layers, hidden_size)
+    #         self.spec_loss = SpectrogramImageLoss()
+
+    #     def forward(self, noisy_obs, clean_obs):
+    #         # Encode noisy observation
+    #         z1, _ = self.enc(noisy_obs)
+
+    #         # Split latent space
+    #         num_features = z1.shape[1] // 2
+    #         batch_size = z1.shape[0]
+    #         z1_private = z1[:, :num_features]
+    #         z1_share = z1[:, num_features:]
+
+    #         # Decode 
+    #         z_sample = torch.cat((z1_private, z1_share), dim=1)
+    #         obs_dec = self.dec(z_sample)
+            
+    #         # Calculate losses against clean observation
+    #         spec_losses = self.spec_loss(obs_dec, clean_obs)
+    #         mse = 0.5 * torch.mean((clean_obs - obs_dec) ** 2, dim=(1, 2, 3))
+            
+    #         psnr = PSNR(obs_dec, clean_obs)
+
+    #         # Normalize latent space
+    #         z_sample = z_sample - z_sample.mean(dim=0)
+    #         z_sample = z_sample / torch.norm(z_sample, p=2)
+            
+    #         # Nuclear loss
+    #         nuc_loss = torch.norm(z_sample, p='nuc', dim=(0, 1)) / batch_size
+
+    #         dimension_info = {
+    #             'z1_private': z1_private.shape,
+    #             'z1_share': z1_share.shape,
+    #             'z_sample': z_sample.shape
+    #         }
+
+    #         return (
+    #             obs_dec,            # Reconstructed observation
+    #             torch.mean(mse),    # Reconstruction loss
+    #             nuc_loss,          # Nuclear norm loss
+    #             0.0,               # Placeholder for kl2 (if needed)
+    #             0.0,               # Placeholder for correlation loss
+    #             spec_losses['total_loss'],  # Spectrogram loss
+    #             spec_losses,       # Dictionary of individual spectrogram losses
+    #             psnr,             # Peak Signal-to-Noise Ratio
+    #             dimension_info     # Information about latent space dimensions
+    #         )
 
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
