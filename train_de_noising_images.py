@@ -227,13 +227,13 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
     optimizer = optim.Adam(DVAE_awa.parameters(), lr=lr)
     # Try to load the latest checkpoint
     latest_checkpoint = 'latest_checkpoint.pth'
-    start_epoch, last_loss = load_checkpoint(DVAE_awa, optimizer, model_path, latest_checkpoint)
+    # start_epoch, last_loss = load_checkpoint(DVAE_awa, optimizer, model_path, latest_checkpoint)
     
-    if last_loss is not None:
-        print(f"Resuming training from epoch {start_epoch} with loss {last_loss}")
-    else:
-        start_epoch = 0
-        print("Starting training from scratch")
+    # if last_loss is not None:
+    #     print(f"Resuming training from epoch {start_epoch} with loss {last_loss}")
+    # else:
+    #     start_epoch = 0
+    #     print("Starting training from scratch")
 
 
     cur_iter = 0
