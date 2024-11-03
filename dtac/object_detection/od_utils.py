@@ -87,12 +87,13 @@ class AudioDataset(Dataset):
             "noisy_audio_2": transformed_noisy_audio_2
         }
 class ImagesDataset(torch.utils.data.Dataset):
-    def __init__(self, files_dir, S=7, B=2, C=3, transform=None, clean_image_folder = "",noisy_image_folder="" ):
+    def __init__(self, files_dir, S=7, B=2, C=3, transform=None, clean_image_folder = "",noisy_image_folder="" , folder_name = "Train"):
         self.files_dir = files_dir
         print(self.files_dir)
         self.clean_image_folder = clean_image_folder
         self.noisy_image_folder = noisy_image_folder
-        clean_image_list = [image for image in sorted(os.listdir(os.path.join(files_dir, clean_image_folder))) if image[-4:]=='.png']
+        self.folder_name = folder_name
+        clean_image_list = [image for image in sorted(os.listdir(os.path.join(files_dir, "updated",  clean_image_folder,self.folder_name ))) if image[-4:]=='.png']
         # noisy_ch1_image_list = [image for image in sorted(os.listdir(os.path.join(files_dir, noisy_image_folder, "CH_1"))) if image[-4:]=='.png']
         # noisy_ch2_image_list = [image for image in sorted(os.listdir(os.path.join(files_dir, noisy_image_folder, "CH_2"))) if image[-4:]=='.png']
         # noisy_ch3_image_list = [image for image in sorted(os.listdir(os.path.join(files_dir, noisy_image_folder, "CH_3"))) if image[-4:]=='.png']
@@ -115,11 +116,11 @@ class ImagesDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, index):
         # Define paths for the clean image and noisy images
-        img_path = os.path.join(self.files_dir, self.clean_image_folder, self.clean_image_dataframe.iloc[index, 0])
-        noisy_img_path_1 = os.path.join(self.files_dir, self.noisy_image_folder, "spectrograms_S02_U02CH1", self.clean_image_dataframe.iloc[index, 0])
-        noisy_img_path_2 = os.path.join(self.files_dir, self.noisy_image_folder, "spectrograms_S02_U03CH1", self.clean_image_dataframe.iloc[index, 0])
-        # noisy_img_path_3 = os.path.join(self.files_dir, self.noisy_image_folder, "folder_3", self.clean_image_dataframe.iloc[index, 0])
-        # noisy_img_path_4 = os.path.join(self.files_dir, self.noisy_image_folder, "folder_4", self.clean_image_dataframe.iloc[index, 0])  # Corrected path
+        img_path = os.path.join(self.files_dir, "updated",self.clean_image_folder, self.folder_name, self.clean_image_dataframe.iloc[index, 0])
+        noisy_img_path_1 = os.path.join(self.files_dir,"updated", self.noisy_image_folder, "spectrograms_S02_P08_U02.CH3",self.folder_name, self.clean_image_dataframe.iloc[index, 0])
+        noisy_img_path_2 = os.path.join(self.files_dir,"updated", self.noisy_image_folder, "spectrograms_S02_P08_U03.CH3",self.folder_name, self.clean_image_dataframe.iloc[index, 0])
+        # noisy_img_path_3 = os.path.join(self.files_dir, self.noisy_image_folder, "spectrograms_S02_P08_U04.CH3",self.folder_name, self.clean_image_dataframe.iloc[index, 0])
+        # noisy_img_path_4 = os.path.join(self.files_dir, self.noisy_image_folder, "spectrograms_S02_P08_U05.CH3",self.folder_name, self.clean_image_dataframe.iloc[index, 0])  # Corrected path
 
         # Load and convert clean image
         image = Image.open(img_path).convert("RGB")

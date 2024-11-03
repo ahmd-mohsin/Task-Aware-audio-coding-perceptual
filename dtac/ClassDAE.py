@@ -12,6 +12,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+
+
 class SpectrogramImageLoss(nn.Module):
     def __init__(self, freq_weighted=True, time_smoothness=True):
         super().__init__()
@@ -51,10 +53,18 @@ class SpectrogramImageLoss(nn.Module):
         total_loss = l1_loss + 0.5 * l2_loss
         
         # Apply frequency-dependent weighting
+        # print(pred.shape, target.shape)
         if self.freq_weighted:
-            weights = self.get_frequency_weights(height).to(pred.device)
-            freq_weighted_diff = torch.abs(pred - target) * weights[None, None, :, None]
+            # weights = self.get_frequency_weights(height).unsqueeze(0).unsqueeze(0).unsqueeze(-1).to(pred.device)
+            # --------------------------------------------------------------------------
+            # weights = self.get_frequency_weights(height).to(pred.device)
+            # weights = weights[:, None].expand(-1, 112).unsqueeze(0).unsqueeze(0)  # Shape: [1, 1, 112, 112]
+            weights = self.get_frequency_weights(height).unsqueeze(0).unsqueeze(0).to(pred.device)
+            
+            # print(weights.shape)
+            freq_weighted_diff = torch.abs(pred - target) * weights
             freq_loss = torch.mean(freq_weighted_diff)
+            # print(freq_loss)
             total_loss = total_loss + 0.5 * freq_loss
             
         # Add temporal smoothness constraint
@@ -71,6 +81,9 @@ class SpectrogramImageLoss(nn.Module):
             'freq_weighted_loss': freq_loss if self.freq_weighted else 0.0,
             'smoothness_loss': smoothness_loss if self.time_smoothness else 0.0
         }
+    
+
+spec_loss = SpectrogramImageLoss()
 
 class E1D1(nn.Module):
     def __init__(self, obs_shape: tuple, z_dim: int, num_layers=3, num_filters=64, 
@@ -79,8 +92,8 @@ class E1D1(nn.Module):
         self.enc = CNNEncoder(obs_shape, z_dim, num_layers, num_filters, n_hidden_layers, hidden_size)
         self.dec = CNNDecoder(z_dim, (obs_shape[0], obs_shape[1], obs_shape[2]), 
                              num_layers, num_filters, n_hidden_layers, hidden_size)
-        self.spec_loss = SpectrogramImageLoss(freq_weighted=True, time_smoothness=True)
 
+        self.spec_loss = SpectrogramImageLoss()
     def forward(self, obs):
         z1, _ = self.enc(obs)
 
@@ -97,6 +110,7 @@ class E1D1(nn.Module):
         # Calculate losses
         spec_losses = self.spec_loss(obs_dec, obs)
         mse = 0.5 * torch.mean((obs - obs_dec) ** 2, dim=(1, 2, 3))
+        
         psnr = PSNR(obs_dec, obs)
 
         # Normalize latent space
@@ -249,6 +263,8 @@ class E2D1(nn.Module):
         self.enc1 = CNNEncoder(obs_shape1, z_dim1, num_layers, num_filters, n_hidden_layers, hidden_size)
         self.enc2 = CNNEncoder(obs_shape2, z_dim2, num_layers, num_filters, n_hidden_layers, hidden_size)
         self.dec = CNNDecoder( (z_dim1 + z_dim2), (obs_shape1[0] + obs_shape2[0], obs_shape1[1], obs_shape1[2])) ### gym
+        self.spec_loss = SpectrogramImageLoss()
+
 
     def forward(self, obs1, obs2, random_bottle_neck=False):
         z1, _ = self.enc1(obs1)
@@ -292,6 +308,8 @@ class E2D1(nn.Module):
 
         obs_dec = self.dec(z_sample)
         mse = 0.5 * torch.mean((obs - obs_dec) ** 2, dim=(1, 2, 3))
+        spec_losses = self.spec_loss(obs_dec, obs)
+
         psnr = PSNR(obs_dec, obs)
 
         ### Normalize
@@ -302,8 +320,7 @@ class E2D1(nn.Module):
         nuc_loss = torch.norm(z_sample, p='nuc', dim=(0, 1)) / batch_size
 
         ### weight parameters recommended by VIC paper: 25, 25, and 10
-        return obs_dec, torch.mean(mse), nuc_loss, 0, 0, psnr
-
+        return obs_dec, torch.mean(mse), nuc_loss, 0, 0,  spec_losses['total_loss'], spec_losses, psnr
 
 class E2D1NonSym(nn.Module):
     def __init__(self, obs_shape1: tuple, obs_shape2: tuple, z_dim1: int, z_dim2: int, num_layers=3, num_filters=64, n_hidden_layers=2, hidden_size=128):
@@ -365,37 +382,37 @@ class E2D1NonSym(nn.Module):
         return obs_dec, torch.mean(mse), nuc_loss, 0, 0, psnr
 
 
-class E1D1(nn.Module):
-    def __init__(self, obs_shape: tuple, z_dim: int, num_layers=3, num_filters=64, n_hidden_layers=2, hidden_size=128): # noise=0.01):
-        super().__init__()
-        self.enc = CNNEncoder(obs_shape, z_dim, num_layers, num_filters, n_hidden_layers, hidden_size)
-        self.dec = CNNDecoder(z_dim, (obs_shape[0], obs_shape[1], obs_shape[2]), num_layers, num_filters, n_hidden_layers, hidden_size)
+# class E1D1(nn.Module):
+#     def __init__(self, obs_shape: tuple, z_dim: int, num_layers=3, num_filters=64, n_hidden_layers=2, hidden_size=128): # noise=0.01):
+#         super().__init__()
+#         self.enc = CNNEncoder(obs_shape, z_dim, num_layers, num_filters, n_hidden_layers, hidden_size)
+#         self.dec = CNNDecoder(z_dim, (obs_shape[0], obs_shape[1], obs_shape[2]), num_layers, num_filters, n_hidden_layers, hidden_size)
 
-    def forward(self, obs):
-        z1, _ = self.enc(obs)
+#     def forward(self, obs):
+#         z1, _ = self.enc(obs)
 
-        ### Not using the normal distribution samples, instead using the variant, invariant, and covariant
-        ### leave log_std unused. 
-        num_features = z1.shape[1] // 2
-        batch_size = z1.shape[0]
-        z1_private = z1[:, :num_features]
-        z1_share = z1[:, num_features:]
+#         ### Not using the normal distribution samples, instead using the variant, invariant, and covariant
+#         ### leave log_std unused. 
+#         num_features = z1.shape[1] // 2
+#         batch_size = z1.shape[0]
+#         z1_private = z1[:, :num_features]
+#         z1_share = z1[:, num_features:]
 
-        ### decode 
-        z_sample = torch.cat((z1_private, z1_share), dim=1)
-        obs_dec = self.dec(z_sample)
-        mse = 0.5 * torch.mean((obs - obs_dec) ** 2, dim=(1, 2, 3))
-        psnr = PSNR(obs_dec, obs)
+#         ### decode 
+#         z_sample = torch.cat((z1_private, z1_share), dim=1)
+#         obs_dec = self.dec(z_sample)
+#         mse = 0.5 * torch.mean((obs - obs_dec) ** 2, dim=(1, 2, 3))
+#         psnr = PSNR(obs_dec, obs)
 
-        ### Normalize
-        z_sample = z_sample - z_sample.mean(dim=0)
+#         ### Normalize
+#         z_sample = z_sample - z_sample.mean(dim=0)
 
-        ### nuclear loss 
-        z_sample = z_sample / torch.norm(z_sample, p=2)
-        nuc_loss = torch.norm(z_sample, p='nuc', dim=(0, 1)) / batch_size
+#         ### nuclear loss 
+#         z_sample = z_sample / torch.norm(z_sample, p=2)
+#         nuc_loss = torch.norm(z_sample, p='nuc', dim=(0, 1)) / batch_size
 
-        ### weight parameters recommended by VIC paper: 25, 25, and 10
-        return obs_dec, torch.mean(mse), nuc_loss, 0, 0, psnr
+#         ### weight parameters recommended by VIC paper: 25, 25, and 10
+#         return obs_dec, torch.mean(mse), nuc_loss, 0, 0, psnr
 
 
 class ResE2D1NonSym(nn.Module):
@@ -469,6 +486,7 @@ class ResE4D1(nn.Module):
         self.dec = ResDecoder((obs_shape1[0], obs_shape1[1] + obs_shape3[1], obs_shape1[2] + obs_shape3[2]), 
                               (z_dim1 + z_dim2 + z_dim3 + z_dim4),
                               n_upsamples=n_samples, n_res_blocks=n_res_blocks)
+        self.spec_loss = SpectrogramImageLoss()
 
     def forward(self, obs1, obs2, obs3, obs4, random_bottle_neck=False):
         z1, _ = self.enc1(obs1)
@@ -528,6 +546,7 @@ class ResE4D1(nn.Module):
         obs_dec = self.dec(z_sample)
         # print("obs_dec shape: ", obs_dec.shape)
         mse = 0.5 * torch.mean((obs - obs_dec) ** 2, dim=(1, 2, 3))
+        self.spec_loss(obs_dec, obs)
         psnr = PSNR(obs_dec, obs)
 
         ### Normalize
@@ -538,7 +557,7 @@ class ResE4D1(nn.Module):
         nuc_loss = torch.norm(z_sample, p='nuc', dim=(0, 1)) / batch_size
 
         ### weight parameters recommended by VIC paper: 25, 25, and 10
-        return obs_dec, torch.mean(mse), nuc_loss, 0, cos_loss, psnr
+        return obs_dec, torch.mean(mse), nuc_loss, 0, cos_loss, spec_loss["total_loss"], spec_loss, psnr
 
 
 
@@ -549,7 +568,8 @@ class ResE2D1(nn.Module):
         self.enc2 = ResEncoder(obs_shape2, z_dim2, n_downsamples=n_samples, n_res_blocks=n_res_blocks)
         # self.dec = ResDecoder((obs_shape1[0] + obs_shape2[0], obs_shape1[1], obs_shape1[2]), (z_dim1 + z_dim2), n_upsamples=n_samples, n_res_blocks=n_res_blocks)
         self.dec = ResDecoder((obs_shape1[0], obs_shape1[1], obs_shape1[2]), (z_dim1 + z_dim2), n_upsamples=n_samples, n_res_blocks=n_res_blocks)
-
+        self.spec_loss = SpectrogramImageLoss()
+        self.dimension_info = {}
     def forward(self, obs1, obs2, clearn_image, random_bottle_neck=False):
         z1, _ = self.enc1(obs1)
         z2, _ = self.enc2(obs2)
@@ -581,7 +601,12 @@ class ResE2D1(nn.Module):
             # project z1 and z2 into corresponding subspace
             z1_p = torch.matmul(z1 - mu_1, v_1[:,ind_1])
             z2_p = torch.matmul(z2 - mu_2, v_2[:,ind_2])
-
+            self.dimension_info = {
+            "before_z1": z1.shape[1],
+            "before_z2": z2.shape[1],
+            "after_z1": z1_p.shape[1],
+            "after_z2": z2_p.shape[1],
+              }
             # concatenate to form full z
             # z_o = torch.cat((z1_p,z2_p), 1)
 
@@ -596,6 +621,7 @@ class ResE2D1(nn.Module):
         obs_dec = self.dec(z_sample)
         # print(obs.shape, obs_dec.shape)
         mse = 0.5 * torch.mean((obs - obs_dec) ** 2, dim=(1, 2, 3))
+        spec_loss = self.spec_loss(obs_dec, obs)
         psnr = PSNR(obs_dec, obs)
 
         ### Normalize
@@ -606,7 +632,7 @@ class ResE2D1(nn.Module):
         nuc_loss = torch.norm(z_sample, p='nuc', dim=(0, 1)) / batch_size
 
         ### weight parameters recommended by VIC paper: 25, 25, and 10
-        return obs_dec, torch.mean(mse), nuc_loss, 0, cos_loss, psnr
+        return obs_dec, torch.mean(mse), nuc_loss, 0, cos_loss, spec_loss["total_loss"], spec_loss, psnr self.dimension_info
 
 
 class ResE2D2(nn.Module):
@@ -616,6 +642,7 @@ class ResE2D2(nn.Module):
         self.enc2 = ResEncoder(obs_shape2, z_dim2, n_downsamples=n_samples, n_res_blocks=n_res_blocks)
         self.dec1 = ResDecoder(obs_shape1, z_dim1, n_upsamples=n_samples, n_res_blocks=n_res_blocks)
         self.dec2 = ResDecoder(obs_shape2, z_dim2, n_upsamples=n_samples, n_res_blocks=n_res_blocks)
+        self.spec_loss = SpectrogramImageLoss()
 
     def forward(self, obs1, obs2):
         z1, _ = self.enc1(obs1)
@@ -631,10 +658,11 @@ class ResE2D2(nn.Module):
         obs2_dec = self.dec2(z2)
         obs_dec = torch.concat((obs1_dec, obs2_dec), dim=1)
         mse = 0.5 * torch.mean((obs - obs_dec) ** 2, dim=(1, 2, 3))
+        spec_loss = self.spec_loss(obs_dec, obs)
         psnr = PSNR(obs_dec, obs)
 
         ### weight parameters recommended by VIC paper: 25, 25, and 10
-        return obs_dec, torch.mean(mse), 0, 0, 0, psnr
+        return obs_dec, torch.mean(mse), 0, 0, 0,spec_loss["total_loss"], spec_loss, psnr
 
 
 class ConcatenateDAE(nn.Module):
@@ -715,6 +743,7 @@ class ResE1D1(nn.Module):
         super().__init__()
         self.enc = ResEncoder(obs_shape, z_dim, n_downsamples=n_samples, n_res_blocks=n_res_blocks)
         self.dec = ResDecoder(obs_shape, z_dim, n_upsamples=n_samples, n_res_blocks=n_res_blocks)
+        self.spec_loss = SpectrogramImageLoss()
 
     def forward(self, obs):
         z1, _ = self.enc(obs)
@@ -730,6 +759,7 @@ class ResE1D1(nn.Module):
         z_sample = torch.cat((z1_private, z1_share), dim=1)
         obs_dec = self.dec(z_sample)
         mse = 0.5 * torch.mean((obs - obs_dec) ** 2, dim=(1, 2, 3))
+        spec_loss = self.spec_loss(obs_dec, obs)
         psnr = PSNR(obs_dec, obs)
 
         ### Normalize
@@ -740,7 +770,7 @@ class ResE1D1(nn.Module):
         nuc_loss = torch.norm(z_sample, p='nuc', dim=(0, 1)) / batch_size
 
         ### weight parameters recommended by VIC paper: 25, 25, and 10
-        return obs_dec, torch.mean(mse), nuc_loss, 0, 0, psnr
+        return obs_dec, torch.mean(mse), nuc_loss, 0, 0, spec_loss["total_loss"], spec_loss,psnr
 
 
 class ConcatenateJAE(nn.Module):
