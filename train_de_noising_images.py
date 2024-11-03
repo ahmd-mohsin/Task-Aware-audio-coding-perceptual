@@ -59,7 +59,7 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
     
     
     #task_model_path = "/home/pl22767/project/dtac-dev/airbus_scripts/models/YoloV1_224x224/yolov1_aug_0.05_0.05_resize448_224x224_ep60_map0.98_0.83.pth"
-    task_model_path = "/home/ahmed/Task-aware-Distributed-Source-Coding/airbus_scripts/yolov5s.pt"
+    # task_model_path = "/home/ahmed/Task-aware-Distributed-Source-Coding/airbus_scripts/yolov5s.pt"
 
     if not randpca:
         LOG_DIR = LOG_DIR.replace("randPCA", "NoPCA")
