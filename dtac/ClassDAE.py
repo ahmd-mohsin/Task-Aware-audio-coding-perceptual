@@ -632,7 +632,7 @@ class ResE2D1(nn.Module):
         nuc_loss = torch.norm(z_sample, p='nuc', dim=(0, 1)) / batch_size
 
         ### weight parameters recommended by VIC paper: 25, 25, and 10
-        return obs_dec, torch.mean(mse), nuc_loss, 0, cos_loss, spec_loss["total_loss"], spec_loss, psnr self.dimension_info
+        return obs_dec, torch.mean(mse), nuc_loss, 0, cos_loss, spec_loss["total_loss"], spec_loss, psnr, self.dimension_info
 
 
 class ResE2D2(nn.Module):
