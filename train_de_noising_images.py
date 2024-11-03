@@ -125,7 +125,23 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
         drop_last=False,
         worker_init_fn=seed_worker,
         generator=g,
-        # num_samples = 2,
+    )
+    test_dataset = ImagesDataset(
+        files_dir=files_dir,
+        transform=transform_img,
+        clean_image_folder = CLEAN_SPEECH_SIGNAL_FOLDER_NAME,
+        noisy_image_folder = NOISY_SPEECH_SIGNAL_FOLDER_NAME,
+        folder_name="Test"
+    )
+    g = torch.Generator()
+    g.manual_seed(0)
+    test_loader = DataLoader(
+        dataset=test_dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        drop_last=False,
+        worker_init_fn=seed_worker,
+        generator=g,
     )
     cropped_image_size_w = width
     cropped_image_size_h = height
@@ -340,6 +356,10 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
 
         epoch_loss = np.mean(ep_loss)
         print(f"Epoch: {ep}, Loss: {epoch_loss}")
+        
+
+
+        
         ### save model
         # if (ep + 1) % save_interval == 0 or (ep + 1) == 20 or ep == 0:
             ### test on train set
@@ -414,8 +434,78 @@ def train_awa_vae(dataset="gym_fetch", z_dim=64, batch_size=32, num_epochs=250, 
             )
 
     print("Training completed!")
-    return
 
+        # After training loop
+    epoch_data = []
+    # Initialize variables for test metrics
+    total_test_loss = 0
+    total_test_psnr = 0
+    num_test_batches = len(test_loader)
+
+    # Testing loop
+    with torch.no_grad():
+        total_k1 = 0
+        total_k2 = 0
+        total_rec_loss = 0
+        total_loss_cor = 0
+        total_spec_total_loss = 0
+        total_spec_total_loss = 0
+        total_psnr = 0
+        total_freq_weighted_loss = 0
+        total_smoothness_loss = 0
+        for batch_idx, data in enumerate(track(test_loader, description="Testing: ")):
+            clean_image = data["clean_image"].to(device) / 255.0
+            noisy_image_1 = data["noisy_image_1"].to(device) / 255.0
+            noisy_image_2 = data["noisy_image_2"].to(device) / 255.0
+            
+            obs_, loss_rec, kl1, kl2, loss_cor, spec_total_loss, spec_loss_dict, psnr, dimension_info = DVAE_awa(noisy_image_1, noisy_image_2, clean_image, random_bottle_neck=True)
+            # Calculate test loss and PSNR (you might have a specific way to compute this based on your task)
+            test_loss =  beta_rec * loss_rec + beta_kl * (kl1 + kl2) + weight_cross_penalty * loss_cor  + (spec_total_loss)
+
+            total_test_loss += test_loss.item()
+            total_test_psnr += psnr.item()
+            
+            total_rec_loss =+ loss_rec
+            total_loss_cor =+ loss_cor
+            total_spec_total_loss =+ spec_total_loss
+            total_psnr =+ psnr
+            total_freq_weighted_loss =+ spec_loss_dict["freq_weighted_loss"]
+            total_smoothness_loss =+ spec_loss_dict["smoothness_loss"]
+    # Average the test metrics
+    average_test_loss = total_test_loss / num_test_batches
+    average_test_psnr = total_test_psnr / num_test_batches
+
+    # Now, append the test metrics to epoch_data
+    epoch_data.append({
+        "epoch": ep + 1,
+        "model_name": vae_model,
+        "kl1": total_k1 / len(train_loader),
+        "kl2": total_k1 / len(train_loader),
+        "loss_rec": (total_rec_loss / len(train_loader)).item(),
+        "loss_cor": (total_loss_cor / len(train_loader)).item(),
+        "spec_total_loss": (total_spec_total_loss / len(train_loader)).item(),
+        "total_smoothness_loss": (total_smoothness_loss / len(train_loader)).item(),
+        "total_freq_weighted_loss": (total_freq_weighted_loss / len(train_loader)).item(),
+        "test_loss": average_test_loss,  # Add test loss
+        "test_psnr": average_test_psnr,  # Add test PSNR
+        **dimension_info,
+    })
+
+    # Define the CSV file path
+    csv_file_path = f'{vae_model}_testing_results.csv'
+
+    # Writing data to CSV
+    with open(csv_file_path, mode='w', newline='') as csv_file:
+        fieldnames = [
+            "epoch", "model_name", "kl1", "kl2", "loss_rec", "loss_cor",
+            "spec_total_loss", "psnr", "total_smoothness_loss", 
+            "total_freq_weighted_loss", "test_loss", "test_psnr"
+        ]
+        fieldnames.extend(dimension_info.keys())
+        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+        writer.writeheader()
+        for data in epoch_data:
+            writer.writerow(data)
 
     return
 
@@ -427,7 +517,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="train Soft-IntroVAE")
     parser.add_argument("-d", "--dataset", type=str, help="dataset to train on: ['cifar10', 'airbus', 'PickAndPlace', 'gym_fetch']", default="chime6")
-    parser.add_argument("-n", "--num_epochs", type=int, help="total number of epochs to run", default=5)
+    parser.add_argument("-n", "--num_epochs", type=int, help="total number of epochs to run", default=10)
     parser.add_argument("-z", "--z_dim", type=int, help="latent dimensions", default=20)
     parser.add_argument("-l", "--lr", type=float, help="learning rate", default=1e-4)
     parser.add_argument("-bs", "--batch_size", type=int, help="batch size", default=8)
@@ -446,7 +536,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     train_awa_vae(dataset=args.dataset, z_dim=args.z_dim, batch_size=args.batch_size, num_epochs=args.num_epochs, weight_cross_penalty=args.cross_penalty, 
-                  beta_kl=args.beta_kl, beta_rec=args.beta_rec, beta_task=args.beta_task, device=args.device, save_interval=50, lr=args.lr, seed=args.seed,
+                  beta_kl=args.beta_kl, beta_rec=args.beta_rec, beta_task=args.beta_task, device=args.device, save_interval=2, lr=args.lr, seed=args.seed,
                   vae_model=args.vae_model, width=args.width, height=args.height, randpca=args.randpca)
 
 
