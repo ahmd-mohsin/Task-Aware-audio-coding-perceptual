@@ -86,6 +86,7 @@ class AudioDataset(Dataset):
             "noisy_audio_1": transformed_noisy_audio_1,
             "noisy_audio_2": transformed_noisy_audio_2
         }
+    
 class ImagesDataset(torch.utils.data.Dataset):
     def __init__(self, files_dir, S=7, B=2, C=3, transform=None, clean_image_folder = "",noisy_image_folder="" , folder_name = "Train"):
         self.files_dir = files_dir
