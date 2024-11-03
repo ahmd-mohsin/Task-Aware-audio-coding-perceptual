@@ -632,12 +632,12 @@ class ResE2D1(nn.Module):
         self.dec = ResDecoder((obs_shape1[0], obs_shape1[1], obs_shape1[2]), (z_dim1 + z_dim2), n_upsamples=n_samples, n_res_blocks=n_res_blocks)
         self.spec_loss = SpectrogramImageLoss()
         self.dimension_info = {}
-    def forward(self, obs1, obs2, clearn_image, random_bottle_neck=False):
+    def forward(self, obs1, obs2, clearn_image = None, random_bottle_neck=False):
         z1, _ = self.enc1(obs1)
         z2, _ = self.enc2(obs2)
-        obs = clearn_image
-        # obs = torch.cat((obs1, obs2), dim=1)
-
+        # obs = clearn_image
+        obs = torch.cat((obs1, obs2), dim=1)
+        # print(z1.shape, z2.shape)
         ### Not using the normal distribution samples, instead using the variant, invariant, and covariant
         ### leave log_std unused. 
         num_features = z1.shape[1] + z2.shape[1]

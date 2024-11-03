@@ -3,6 +3,7 @@
 *.jpg 
 *.pth 
 *.pyc
+*.pkl
 # Python cache directories
 __pycache__/
 *.py[cod]
