@@ -1,2 +1,0 @@
-epoch,model_name,kl1,kl2,loss_rec,loss_cor,spec_total_loss,psnr,total_smoothness_loss,total_freq_weighted_loss,before_z1,before_z2,after_z1,after_z2
-1,ResBasedVAE,0.0,0.0,4.6995788579806685e-05,-0.0007173700723797083,0.0006645195535384119,0.6365053653717041,3.2105439458973706e-05,0.00014942193229217082,10,10,3,3

@@ -537,7 +537,7 @@ if __name__ == "__main__":
 
     train_awa_vae(dataset=args.dataset, z_dim=args.z_dim, batch_size=args.batch_size, num_epochs=args.num_epochs, weight_cross_penalty=args.cross_penalty, 
                   beta_kl=args.beta_kl, beta_rec=args.beta_rec, beta_task=args.beta_task, device=args.device, save_interval=2, lr=args.lr, seed=args.seed,
-                  vae_model=args.vae_model, width=args.width, height=args.height, randpca=args.randpca)
+                  vae_model="JointCNNBasedVAE", width=args.width, height=args.height, randpca=args.randpca)
 
 
 
