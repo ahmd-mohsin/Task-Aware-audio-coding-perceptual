@@ -210,6 +210,8 @@ class SpectralResE2D1(nn.Module):
         self.dec = SpectralDecoder(self.in_channels, self.freq_dim, self.time_dim, z_dim1 + z_dim2, n_res_blocks)
         
         self.dimension_info = {}
+    def get_dim_info(self):
+        return  ["before_z1","before_z2","after_z1","after_z2"]
 
     def forward(self, obs1, obs2, clean_data=None, random_bottle_neck=False):
         # Process input data - stack magnitude, phase, and db_scale
@@ -284,7 +286,7 @@ class SpectralResE2D1(nn.Module):
             "total_loss": torch.mean((obs - obs_dec) ** 2)
         }
         
-        return obs_dec, torch.mean(mse), nuc_loss, 0, cos_loss, spec_loss["total_loss"], spec_loss, spec_snr, self.dimension_info
+        return obs_dec, torch.mean(mse), nuc_loss, torch.tensor(0), cos_loss, spec_loss["total_loss"], spec_loss, spec_snr, self.dimension_info
 
 class SpectralResE4D1(nn.Module):
     def __init__(self, z_dim1: int, z_dim2: int, z_dim3: int, z_dim4: int, n_res_blocks: int=3):
@@ -310,6 +312,8 @@ class SpectralResE4D1(nn.Module):
         )
         
         self.dimension_info = {}
+    def get_dim_info(self):
+        return  ["before_z1","before_z2","before_z3","before_z4","after_z1","after_z2","after_z3","after_z4"]
 
     def forward(self, obs1, obs2, obs3, obs4, clean_data=None, random_bottle_neck=False):
         # Process input data - stack magnitude and phase for each observation
@@ -421,7 +425,7 @@ class SpectralResE4D1(nn.Module):
             "total_loss": torch.mean((obs - obs_dec) ** 2)
         }
         
-        return obs_dec, torch.mean(mse), nuc_loss, 0, cos_loss, spec_loss["total_loss"], spec_loss, spec_snr, self.dimension_info
+        return obs_dec, torch.mean(mse), nuc_loss, torch.tensor(0), cos_loss, spec_loss["total_loss"], spec_loss, spec_snr, self.dimension_info
 
 
 
@@ -439,7 +443,10 @@ class SpectralResE1D1(nn.Module):
         
         self.dimension_info = {}
 
-    def forward(self, obs):
+    def get_dim_info(self):
+        return  ["before_z1","after_z1"]
+    def forward(self, obs, clean, random_bottle_neck):
+        # print(random_bottle_neck)
         # Process input data - stack magnitude and phase
         obs_stacked = torch.stack([
             obs['magnitude'],
@@ -483,9 +490,8 @@ class SpectralResE1D1(nn.Module):
         
         # Store dimension information
         self.dimension_info = {
-            "total_dim": z1.shape[1],
-            "private_dim": num_features,
-            "shared_dim": num_features
+            "before_z1": z1.shape[1],
+            "after_z2": num_features
         }
         
-        return obs_dec, torch.mean(mse), nuc_loss, 0, 0, spec_loss["total_loss"], spec_loss, spec_snr, self.dimension_info
+        return obs_dec, torch.mean(mse), nuc_loss, torch.tensor(0), torch.tensor(0), spec_loss["total_loss"], spec_loss, spec_snr, self.dimension_info

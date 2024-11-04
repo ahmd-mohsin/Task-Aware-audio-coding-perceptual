@@ -27,10 +27,12 @@ class SpectralDataset(Dataset):
         self.clean_data_dir = Path(os.path.join(clean_data_dir, file_type))
         
         # Initialize four noisy data directories
-        self.noisy_data_dir1 = Path(noisy_data_dir, "complex_specs_S02_P08", file_type)
-        self.noisy_data_dir2 = Path(noisy_data_dir, "complex_specs_S02_P09", file_type)
-        self.noisy_data_dir3 = Path(noisy_data_dir, "complex_specs_S02_P10", file_type)
-        self.noisy_data_dir4 = Path(noisy_data_dir, "complex_specs_S02_P11", file_type)
+        self.noisy_data_dir1 = Path(noisy_data_dir, "complex_specs_S02_P08_U02.CH3", file_type)
+        # self.noisy_data_dir2 = Path(noisy_data_dir, "complex_specs_S02_P08_U03.CH3", file_type)
+        self.noisy_data_dir2 = Path(noisy_data_dir, "complex_specs_S02_P08_U04.CH3", file_type)
+        self.noisy_data_dir3 = Path(noisy_data_dir, "complex_specs_S02_P08_U04.CH3", file_type)
+        self.noisy_data_dir4 = Path(noisy_data_dir, "complex_specs_S02_P08_U04.CH3", file_type)
+        # self.noisy_data_dir4 = Path(noisy_data_dir, "complex_specs_S02_P08_U05.CH3", file_type)
         
         self.device = device
         
@@ -121,7 +123,7 @@ def seed_worker(worker_id):
     random.seed(worker_seed)
 
 def train_spectral_ae(batch_size=32, num_epochs=250, beta_kl=1.0, beta_rec=0.0, 
-                     weight_cross_penalty=0.1, device=0, lr=2e-4, seed=0, randpca=False, z_dim=64):
+                     weight_cross_penalty=0.1, device=0, lr=2e-4, seed=0, randpca=False, z_dim=64 ):
     if seed != -1:
         random.seed(seed)
         np.random.seed(seed)
@@ -157,27 +159,30 @@ def train_spectral_ae(batch_size=32, num_epochs=250, beta_kl=1.0, beta_rec=0.0,
     )
 
     # Initialize model
-    model = SpectralResE2D1(z_dim1=int(z_dim/2), z_dim2=int(z_dim/2), n_res_blocks=3).to(device)
-    model.train()
-    optimizer = optim.Adam(model.parameters(), lr=lr)
     
+    
+    # model = SpectralResE2D1(z_dim1=int(z_dim/2), z_dim2=int(z_dim/2), n_res_blocks=3).to(device)
+    # model = SpectralResE4D1(z_dim1=int(z_dim/2), z_dim2=int(z_dim/2), z_dim3=int(z_dim/2), z_dim4=int(z_dim/2), n_res_blocks=3).to(device)
+    model = SpectralResE1D1(z_dim=int(z_dim/2), n_res_blocks=3).to(device)
+    model_name = "SpecResEE1D1"
+    model.train()
     # Create a CSV file and write the header
-    csv_file = 'training_metrics.csv'
+    csv_file = f'{model_name}.csv'
     # Assuming consistent keys in dim_info, initialize them once
     dim_keys = []  # Set of unique keys in dim_info, assumed to be static
+    # # Sample batch to retrieve `dim_info` keys
+    # sample_batch = next(iter(train_loader))
 
-    # Sample batch to retrieve `dim_info` keys
-    sample_batch = next(iter(train_loader))
-    _, _, _, _, _, _, _, _, dim_info_sample = model(
-        sample_batch["noisy_audio_1"],
-        sample_batch["noisy_audio_2"],
-        sample_batch["clean_audio"],
-        random_bottle_neck=randpca
-    )
-    dim_keys = sorted(dim_info_sample.keys())  # Store sorted keys for consistent order
+    # _, _, _, _, _, _, _, _, dim_info_sample = model(
+    #     sample_batch["noisy_audio_1"],
+    #     sample_batch["noisy_audio_2"],
+    #     sample_batch["clean_audio"],
+    #     random_bottle_neck=randpca
+    # )
+    dim_keys = sorted(model.get_dim_info())  # Store sorted keys for consistent order
 
+    optimizer = optim.Adam(model.parameters(), lr=lr)
     # Initialize CSV header
-    csv_file = 'spec_training_metrics.csv'
     header = [
         "Epoch", "Avg_MSE_Loss", "Avg_Nuclear_Loss", "Avg_Cosine_Loss", 
         "Avg_Spectral_Loss", "Avg_Spectral_SNR", 
@@ -199,13 +204,17 @@ def train_spectral_ae(batch_size=32, num_epochs=250, beta_kl=1.0, beta_rec=0.0,
             clean_audio = data["clean_audio"]
             noisy_audio_1 = data["noisy_audio_1"]
             noisy_audio_2 = data["noisy_audio_2"]
-            
+            noisy_audio_3 = data["noisy_audio_3"]
+            noisy_audio_4 = data["noisy_audio_4"]
+            # print(randpca)
             # Forward pass
             decoded, mse_loss, nuc_loss, _, cos_loss, spec_loss, spec_loss_dict, spec_snr, dim_info = model(
                 noisy_audio_1, 
-                noisy_audio_2, 
+                # noisy_audio_2, 
+                # noisy_audio_3, 
+                # noisy_audio_4, 
                 clean_audio,
-                random_bottle_neck=randpca
+                True,
             )
             
             # Calculate total loss
@@ -230,16 +239,16 @@ def train_spectral_ae(batch_size=32, num_epochs=250, beta_kl=1.0, beta_rec=0.0,
             total_losses.append(spec_loss_dict["total_loss"].item())
         
 
-            if batch_idx % 10 == 0:
-                print(f"\nBatch {batch_idx}")
-                print(f"MSE Loss: {mse_loss.item():.4f}")
-                print(f"Nuclear Loss: {nuc_loss.item():.4f}")
-                print(f"Cosine Loss: {cos_loss.item():.4f}")
-                print(f"Spectral Loss: {spec_loss.item():.4f}")
-                print(f"Spectral SNR: {spec_snr.item():.2f} dB")
-                for key in sorted(dim_info.keys()):
-                    # avg_dim_value = np.mean(epoch_dim_info[key])  # Average value for this key
-                    print(f"{key}: {dim_info[key]}")
+            # if batch_idx % 10 == 0:
+            #     print(f"\nBatch {batch_idx}")
+            #     print(f"MSE Loss: {mse_loss.item():.4f}")
+            #     print(f"Nuclear Loss: {nuc_loss.item():.4f}")
+            #     print(f"Cosine Loss: {cos_loss.item():.4f}")
+            #     print(f"Spectral Loss: {spec_loss.item():.4f}")
+            #     print(f"Spectral SNR: {spec_snr.item():.2f} dB")
+            #     for key in sorted(dim_info.keys()):
+            #         # avg_dim_value = np.mean(epoch_dim_info[key])  # Average value for this key
+            #         print(f"{key}: {dim_info[key]}")
 
     
         avg_loss = np.mean(epoch_losses)
@@ -274,8 +283,10 @@ def train_spectral_ae(batch_size=32, num_epochs=250, beta_kl=1.0, beta_rec=0.0,
 
         print(f"\nEpoch {epoch+1} Average Loss: {avg_loss:.4f}")
         # Save model checkpoint
-        if (epoch + 1) % 10 == 0:
-            checkpoint_path = f"spectral_model_epoch_{epoch+1}.pth"
+        if (epoch + 1) % 5 == 0:
+            base_dir = f"./models/{model_name}"
+            os.makedirs(base_dir, exist_ok=True)
+            checkpoint_path = f"{base_dir}/model_epoch_{epoch+1}.pth"
             torch.save({
                 'epoch': epoch,
                 'model_state_dict': model.state_dict(),
@@ -285,7 +296,7 @@ def train_spectral_ae(batch_size=32, num_epochs=250, beta_kl=1.0, beta_rec=0.0,
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train Spectral Auto-Encoder")
-    parser.add_argument("-n", "--num_epochs", type=int, default=250)
+    parser.add_argument("-n", "--num_epochs", type=int, default=100)
     parser.add_argument("-z", "--z_dim", type=int, default=32)
     parser.add_argument("-l", "--lr", type=float, default=2e-4)
     parser.add_argument("-bs", "--batch_size", type=int, default=16)
