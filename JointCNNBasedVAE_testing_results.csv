@@ -1,2 +1,0 @@
-epoch,model_name,kl1,kl2,loss_rec,loss_cor,spec_total_loss,psnr,total_smoothness_loss,total_freq_weighted_loss,test_loss,test_psnr,z1_private,z1_share,z_sample
-100,JointCNNBasedVAE,0.0,0.0,4.592768527800217e-05,0.0,0.0007525506662204862,,4.990431625628844e-05,0.00017662349273450673,0.10063766926527024,67.55432739257813,"torch.Size([8, 10])","torch.Size([8, 10])","torch.Size([8, 20])"
