@@ -61,7 +61,7 @@ The core coding pipeline (`dtac`) encodes correlated audio signals and leverages
 Clone this repository and install dependencies:
 
 ```bash
-git clone https://github.com/yourusername/distributed-task-aware-source-coding.git
+git clone https://github.com/ahmd-mohsin/distributed-task-aware-source-coding.git
 cd distributed-task-aware-source-coding
 pip install -r requirements.txt
 ```
@@ -108,4 +108,4 @@ This project is licensed under the MIT License.
 
 --- 
 
-This README covers your repository’s functionality and usage, helping others understand and run your project efficiently.
+
