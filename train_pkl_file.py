@@ -162,9 +162,9 @@ def train_spectral_ae(batch_size=32, num_epochs=250, beta_kl=1.0, beta_rec=0.0,
     
     
     # model = SpectralResE2D1(z_dim1=int(z_dim/2), z_dim2=int(z_dim/2), n_res_blocks=3).to(device)
-    # model = SpectralResE4D1(z_dim1=int(z_dim/2), z_dim2=int(z_dim/2), z_dim3=int(z_dim/2), z_dim4=int(z_dim/2), n_res_blocks=3).to(device)
-    model = SpectralResE1D1(z_dim=int(z_dim/2), n_res_blocks=3).to(device)
-    model_name = "SpecResEE1D1"
+    model = SpectralResE4D1(z_dim1=int(z_dim/2), z_dim2=int(z_dim/2), z_dim3=int(z_dim/2), z_dim4=int(z_dim/2), n_res_blocks=3).to(device)
+    # model = SpectralResE1D1(z_dim=int(z_dim/2), n_res_blocks=3).to(device)
+    model_name = "SpecResE4D1"
     model.train()
     # Create a CSV file and write the header
     csv_file = f'{model_name}.csv'
@@ -210,9 +210,9 @@ def train_spectral_ae(batch_size=32, num_epochs=250, beta_kl=1.0, beta_rec=0.0,
             # Forward pass
             decoded, mse_loss, nuc_loss, _, cos_loss, spec_loss, spec_loss_dict, spec_snr, dim_info = model(
                 noisy_audio_1, 
-                # noisy_audio_2, 
-                # noisy_audio_3, 
-                # noisy_audio_4, 
+                noisy_audio_2, 
+                noisy_audio_3, 
+                noisy_audio_4, 
                 clean_audio,
                 True,
             )
