@@ -213,7 +213,7 @@ class SpectralResE2D1(nn.Module):
     def get_dim_info(self):
         return  ["before_z1","before_z2","after_z1","after_z2"]
 
-    def forward(self, obs1, obs2, clean_data=None, random_bottle_neck=False):
+    def forward(self, obs1, obs2, clean_data=None, random_bottle_neck=True):
         # Process input data - stack magnitude, phase, and db_scale
         obs1_stacked = torch.stack([
             obs1['magnitude'],
