@@ -5,8 +5,7 @@ import numpy as np
 import pickle
 from pathlib import Path
 from train_pkl_file import *
-from pkl_file_models import *   
-
+from pkl_file_models import *
 
 
 class TestSpectralAutoEncoder(unittest.TestCase):
@@ -14,28 +13,44 @@ class TestSpectralAutoEncoder(unittest.TestCase):
     def setUpClass(cls):
         """Set up test data and model"""
         # Define directories
-        cls.test_clean_dir = Path("./test_data/complex/complex_specs_S02_P08/Test")
+        cls.test_clean_dir = Path("./Data/complex/complex_specs_S02_P08/Test")
         cls.test_noisy_dirs = [
-            Path("./test_data/complex/complex_specs_S02_P08_U02.CH3/Test"),
-            Path("./test_data/complex/complex_specs_S02_P08_U03.CH3/Test"),
-            Path("./test_data/complex/complex_specs_S02_P08_U04.CH3/Test"),
-            Path("./test_data/complex/complex_specs_S02_P08_U05.CH3/Test")
+            Path("./Data/complex/complex_specs_S02_P08_U02.CH3/Test"),
+            Path("./Data/complex/complex_specs_S02_P08_U03.CH3/Test"),
+            Path("./Data/complex/complex_specs_S02_P08_U04.CH3/Test"),
+            Path("./Data/complex/complex_specs_S02_P08_U05.CH3/Test")
         ]
         cls.model_path = "./models/SpecResE4D1/model_epoch_100.pth"
 
         # Load test data
         cls.test_dataset = SpectralDataset(
-            clean_data_dir="./test_data/complex/complex_specs_S02_P08",
-            noisy_data_dir="./test_data/complex",
+            clean_data_dir="./Data/complex/complex_specs_S02_P08",
+            noisy_data_dir="./Data/complex",
             file_type='Test',
             device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
         )
 
         # Load trained model
-        cls.model = SpectralResE4D1(z_dim1=32, z_dim2=32, z_dim3=32, z_dim4=32, n_res_blocks=3)
         checkpoint = torch.load(cls.model_path, map_location=torch.device("cpu"))
-        cls.model.load_state_dict(checkpoint['model_state_dict'])
+        cls.model = cls.create_model_from_checkpoint(checkpoint)
         cls.model.eval()
+
+    @classmethod
+    def create_model_from_checkpoint(cls, checkpoint):
+        """Create a new model instance with the same architecture as the checkpoint"""
+        model = SpectralResE4D1(z_dim1=32, z_dim2=32, z_dim3=32, z_dim4=32, n_res_blocks=3)
+        
+        # Get the model state dictionary from the checkpoint
+        model_state_dict = checkpoint['model_state_dict']
+        
+        # Iterate through the model parameters and load the weights
+        for name, param in model.named_parameters():
+            if name in model_state_dict:
+                param.data.copy_(model_state_dict[name])
+            else:
+                print(f"Parameter '{name}' not found in the checkpoint.")
+        
+        return model
 
     def test_model_performance(self):
         """Test the model's performance on the test dataset"""

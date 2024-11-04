@@ -289,7 +289,7 @@ class SpectralResE2D1(nn.Module):
         return obs_dec, torch.mean(mse), nuc_loss, torch.tensor(0), cos_loss, spec_loss["total_loss"], spec_loss, spec_snr, self.dimension_info
 
 class SpectralResE4D1(nn.Module):
-    def __init__(self, z_dim1: int, z_dim2: int, z_dim3: int, z_dim4: int, n_res_blocks: int=3):
+    def __init__(self, z_dim1: int, z_dim2: int, z_dim3: int, z_dim4: int, n_res_blocks: int=3,random_bottle_neck=True):
         super().__init__()
         # Define input shapes based on spectral data
         self.freq_dim = 1025
@@ -315,7 +315,7 @@ class SpectralResE4D1(nn.Module):
     def get_dim_info(self):
         return  ["before_z1","before_z2","before_z3","before_z4","after_z1","after_z2","after_z3","after_z4"]
 
-    def forward(self, obs1, obs2, obs3, obs4, clean_data=None, random_bottle_neck=False):
+    def forward(self, obs1, obs2, obs3, obs4, clean_data=None, random_bottle_neck=True):
         # Process input data - stack magnitude and phase for each observation
         obs1_stacked = torch.stack([
             obs1['magnitude'],

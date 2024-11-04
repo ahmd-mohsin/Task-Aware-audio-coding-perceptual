@@ -123,7 +123,7 @@ def seed_worker(worker_id):
     random.seed(worker_seed)
 
 def train_spectral_ae(batch_size=32, num_epochs=250, beta_kl=1.0, beta_rec=0.0, 
-                     weight_cross_penalty=0.1, device=0, lr=2e-4, seed=0, randpca=False, z_dim=64 ):
+                     weight_cross_penalty=0.1, device=0, lr=2e-4, seed=0, randpca=True, z_dim=64 ):
     if seed != -1:
         random.seed(seed)
         np.random.seed(seed)
@@ -162,7 +162,7 @@ def train_spectral_ae(batch_size=32, num_epochs=250, beta_kl=1.0, beta_rec=0.0,
     
     
     # model = SpectralResE2D1(z_dim1=int(z_dim/2), z_dim2=int(z_dim/2), n_res_blocks=3).to(device)
-    model = SpectralResE4D1(z_dim1=int(z_dim/2), z_dim2=int(z_dim/2), z_dim3=int(z_dim/2), z_dim4=int(z_dim/2), n_res_blocks=3).to(device)
+    model = SpectralResE4D1(z_dim1=int(z_dim/2), z_dim2=int(z_dim/2), z_dim3=int(z_dim/2), z_dim4=int(z_dim/2), n_res_blocks=3, random_bottle_neck=True).to(device)
     # model = SpectralResE1D1(z_dim=int(z_dim/2), n_res_blocks=3).to(device)
     model_name = "SpecResE4D1"
     model.train()
@@ -318,6 +318,6 @@ if __name__ == "__main__":
         device=args.device,
         lr=args.lr,
         seed=args.seed,
-        randpca=args.randpca,
+        randpca=True,
         z_dim=args.z_dim
     )
