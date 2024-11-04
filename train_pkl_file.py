@@ -161,9 +161,8 @@ def train_spectral_ae(batch_size=32, num_epochs=250, beta_kl=1.0, beta_rec=0.0,
     # Initialize model
     
     
-    # model = SpectralResE2D1(z_dim1=int(z_dim/2), z_dim2=int(z_dim/2), n_res_blocks=3).to(device)
-    model = SpectralResE2D2(z_dim1=int(z_dim/2), z_dim2=int(z_dim/2), n_res_blocks=3).to(device)
-   #  model = SpectralResE4D1(z_dim1=int(z_dim/2), z_dim2=int(z_dim/2), z_dim3=int(z_dim/2), z_dim4=int(z_dim/2), n_res_blocks=3, random_bottle_neck=True).to(device)
+    model = SpectralResE2D1(z_dim1=int(z_dim/2), z_dim2=int(z_dim/2), n_res_blocks=3).to(device)
+    #  model = SpectralResE4D1(z_dim1=int(z_dim/2), z_dim2=int(z_dim/2), z_dim3=int(z_dim/2), z_dim4=int(z_dim/2), n_res_blocks=3, random_bottle_neck=True).to(device)
     # model = SpectralResE1D1(z_dim=int(z_dim/2), n_res_blocks=3).to(device)
     model_name = "SpecResE2D2"
     model.train()
