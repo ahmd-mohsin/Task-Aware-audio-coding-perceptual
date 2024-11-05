@@ -228,6 +228,8 @@ def test_spectral_ae(batch_size=8, device=0, model_path="/home/ahmed/Task-Aware-
     print(f"Avg Magnitude Loss: {avg_mag_loss:.4f}")
     print(f"Avg Phase Loss: {avg_phase_loss:.4f}")
     print(f"Avg Total Loss: {avg_total_loss:.4f}")
+    print(f"Avg PSNR Observed: {avg_psnr_obs:.2f} dB")  
+    print(f"Avg PSNR Clean: {avg_psnr_clean:.2f} dB")
 
     # Save results to CSV
     results_csv = f'{model_name}_test_results.csv'
@@ -244,8 +246,8 @@ def test_spectral_ae(batch_size=8, device=0, model_path="/home/ahmed/Task-Aware-
         writer.writerow(header)
     
     epoch_row = [
-        avg_mse_loss, avg_nuc_loss, avg_cos_loss, 
-        avg_spec_loss, avg_spec_snr, avg_mag_loss, avg_phase_loss, avg_total_loss
+         avg_mse_loss, avg_nuc_loss, avg_cos_loss, 
+            avg_spec_loss, avg_spec_snr, avg_mag_loss, avg_phase_loss, avg_total_loss,avg_psnr_obs,avg_psnr_clean
     ]
     
     # Add averaged dim_info values to the row
