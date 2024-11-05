@@ -196,6 +196,8 @@ class SpectralDecoder(nn.Module):
         
         return x
 
+
+
 class SpectralResE2D1(nn.Module):
     def __init__(self, z_dim1: int, z_dim2: int, n_res_blocks: int=3):
         super().__init__()
@@ -286,7 +288,157 @@ class SpectralResE2D1(nn.Module):
             "total_loss": torch.mean((obs - obs_dec) ** 2)
         }
         
-        return obs_dec, torch.mean(mse), nuc_loss, torch.tensor(0), cos_loss, spec_loss["total_loss"], spec_loss, spec_snr, self.dimension_info
+        # Additional return values for consistency with other models
+        total_mse = torch.mean(mse)
+        total_nuc_loss = nuc_loss
+        cross_recon_loss = torch.tensor(0)
+        total_spec_loss = spec_loss["total_loss"]
+        spec_loss1 = spec_loss
+        total_spec_snr = spec_snr
+        psnr_obs = 10 * torch.log10(1 / total_mse)
+        psnr_clean = 10 * torch.log10(1 / total_mse)
+
+        return obs_dec, total_mse, total_nuc_loss, cross_recon_loss, cos_loss, total_spec_loss, spec_loss1, total_spec_snr, psnr_obs, psnr_clean, self.dimension_info
+
+# class SpectralResE4D1(nn.Module):
+#     def __init__(self, z_dim1: int, z_dim2: int, z_dim3: int, z_dim4: int, n_res_blocks: int=3,random_bottle_neck=True):
+#         super().__init__()
+#         # Define input shapes based on spectral data
+#         self.freq_dim = 1025
+#         self.time_dim = 600
+#         self.in_channels = 2  # magnitude, phase
+
+#         # Initialize spectral encoders for each input
+#         self.enc1 = SpectralEncoder(self.in_channels, self.freq_dim, self.time_dim, z_dim1, n_res_blocks)
+#         self.enc2 = SpectralEncoder(self.in_channels, self.freq_dim, self.time_dim, z_dim2, n_res_blocks)
+#         self.enc3 = SpectralEncoder(self.in_channels, self.freq_dim, self.time_dim, z_dim3, n_res_blocks)
+#         self.enc4 = SpectralEncoder(self.in_channels, self.freq_dim, self.time_dim, z_dim4, n_res_blocks)
+        
+#         # Initialize decoder
+#         self.dec = SpectralDecoder(
+#             self.in_channels,
+#             self.freq_dim * 2,  # Doubled frequency dimension for concatenated data
+#             self.time_dim * 2,  # Doubled time dimension for concatenated data
+#             z_dim1 + z_dim2 + z_dim3 + z_dim4,
+#             n_res_blocks
+#         )
+        
+#         self.dimension_info = {}
+#     def get_dim_info(self):
+#         return  ["before_z1","before_z2","before_z3","before_z4","after_z1","after_z2","after_z3","after_z4"]
+
+#     def forward(self, obs1, obs2, obs3, obs4, clean_data=None, random_bottle_neck=True):
+#         # Process input data - stack magnitude and phase for each observation
+#         obs1_stacked = torch.stack([
+#             obs1['magnitude'],
+#             obs1['phase'],
+#         ], dim=1).float()
+        
+#         obs2_stacked = torch.stack([
+#             obs2['magnitude'],
+#             obs2['phase'],
+#         ], dim=1).float()
+        
+#         obs3_stacked = torch.stack([
+#             obs3['magnitude'],
+#             obs3['phase'],
+#         ], dim=1).float()
+        
+#         obs4_stacked = torch.stack([
+#             obs4['magnitude'],
+#             obs4['phase'],
+#         ], dim=1).float()
+
+#         # Encode all inputs
+#         z1, _ = self.enc1(obs1_stacked)
+#         z2, _ = self.enc2(obs2_stacked)
+#         z3, _ = self.enc3(obs3_stacked)
+#         z4, _ = self.enc4(obs4_stacked)
+
+#         # Concatenate observations for reconstruction target
+#         obs12 = torch.cat((obs1_stacked, obs2_stacked), dim=3)  # Concatenate along time dimension
+#         obs34 = torch.cat((obs3_stacked, obs4_stacked), dim=3)
+#         obs = torch.cat((obs12, obs34), dim=2)  # Concatenate along frequency dimension
+
+#         batch_size = z1.shape[0]
+#         num_features = z1.shape[1] + z2.shape[1] + z3.shape[1] + z4.shape[1]
+
+#         if random_bottle_neck:
+#             dim_p = torch.randint(8, int(num_features/2), (1,)).item()
+            
+#             # Perform PCA on each latent representation
+#             s_1, v_1, mu_1 = data_pca(z1)
+#             s_2, v_2, mu_2 = data_pca(z2)
+#             s_3, v_3, mu_3 = data_pca(z3)
+#             s_4, v_4, mu_4 = data_pca(z4)
+            
+#             # Combine singular values and sort
+#             s_1_2_3_4 = torch.cat((s_1, s_2, s_3, s_4), 0)
+#             ind = torch.argsort(s_1_2_3_4, descending=True)
+#             ind = ind[:dim_p]
+            
+#             # Split indices for each latent space
+#             ind_1 = ind[ind < s_1.shape[0]]
+#             ind_2 = ind[torch.logical_and(ind >= s_1.shape[0], ind < (s_1.shape[0] + s_2.shape[0]))] - s_1.shape[0]
+#             ind_3 = ind[torch.logical_and(ind >= (s_1.shape[0] + s_2.shape[0]), 
+#                                         ind < (s_1.shape[0] + s_2.shape[0] + s_3.shape[0]))] - (s_1.shape[0] + s_2.shape[0])
+#             ind_4 = ind[ind >= (s_1.shape[0] + s_2.shape[0] + s_3.shape[0])] - (s_1.shape[0] + s_2.shape[0] + s_3.shape[0])
+            
+#             # Project to reduced dimension
+#             z1_p = torch.matmul(z1 - mu_1, v_1[:,ind_1])
+#             z2_p = torch.matmul(z2 - mu_2, v_2[:,ind_2])
+#             z3_p = torch.matmul(z3 - mu_3, v_3[:,ind_3])
+#             z4_p = torch.matmul(z4 - mu_4, v_4[:,ind_4])
+            
+#             # Store dimension information
+#             self.dimension_info = {
+#                 "before_z1": z1.shape[1],
+#                 "before_z2": z2.shape[1],
+#                 "before_z3": z3.shape[1],
+#                 "before_z4": z4.shape[1],
+#                 "after_z1": z1_p.shape[1],
+#                 "after_z2": z2_p.shape[1],
+#                 "after_z3": z3_p.shape[1],
+#                 "after_z4": z4_p.shape[1],
+#             }
+            
+#             # Project back to original space
+#             z1 = torch.matmul(z1_p, v_1[:,ind_1].T) + mu_1
+#             z2 = torch.matmul(z2_p, v_2[:,ind_2].T) + mu_2
+#             z3 = torch.matmul(z3_p, v_3[:,ind_3].T) + mu_3
+#             z4 = torch.matmul(z4_p, v_4[:,ind_4].T) + mu_4
+
+#         # Calculate cosine similarity between all pairs
+#         cos_sim = torch.nn.CosineSimilarity()
+#         cos_loss = torch.mean(cos_sim(z1, z2) + cos_sim(z1, z3) + cos_sim(z1, z4) + 
+#                             cos_sim(z2, z3) + cos_sim(z2, z4) + cos_sim(z3, z4))
+        
+#         # Concatenate latent vectors
+#         z_sample = torch.cat((z1, z2, z3, z4), dim=1)
+        
+#         # Decode
+#         obs_dec = self.dec(z_sample)
+        
+#         # Calculate losses
+#         mse = 0.5 * torch.mean((obs - obs_dec) ** 2, dim=(1, 2, 3))
+        
+#         # Normalize latent representation
+#         z_sample = z_sample - z_sample.mean(dim=0)
+#         z_sample = z_sample / torch.norm(z_sample, p=2)
+#         nuc_loss = torch.norm(z_sample, p='nuc', dim=(0, 1)) / batch_size
+        
+#         # Calculate spectral SNR
+#         spec_snr = -10 * torch.log10(torch.mean((obs - obs_dec) ** 2) / torch.mean(obs ** 2))
+        
+#         # Create spectral loss dictionary
+#         spec_loss = {
+#             "magnitude_loss": torch.mean((obs[:, 0] - obs_dec[:, 0]) ** 2),
+#             "phase_loss": torch.mean((obs[:, 1] - obs_dec[:, 1]) ** 2),
+#             "total_loss": torch.mean((obs - obs_dec) ** 2)
+#         }
+        
+#         return obs_dec, torch.mean(mse), nuc_loss, torch.tensor(0), cos_loss, spec_loss["total_loss"], spec_loss, spec_snr, self.dimension_info
+
 
 class SpectralResE4D1(nn.Module):
     def __init__(self, z_dim1: int, z_dim2: int, z_dim3: int, z_dim4: int, n_res_blocks: int=3,random_bottle_neck=True):
@@ -425,9 +577,17 @@ class SpectralResE4D1(nn.Module):
             "total_loss": torch.mean((obs - obs_dec) ** 2)
         }
         
-        return obs_dec, torch.mean(mse), nuc_loss, torch.tensor(0), cos_loss, spec_loss["total_loss"], spec_loss, spec_snr, self.dimension_info
+        # Additional return values for E2D2 consistency
+        total_mse = torch.mean(mse)
+        total_nuc_loss = nuc_loss
+        cross_recon_loss = torch.tensor(0)
+        total_spec_loss = spec_loss["total_loss"]
+        spec_loss1 = spec_loss
+        total_spec_snr = spec_snr
+        psnr_obs = 10 * torch.log10(1 / total_mse)
+        psnr_clean = 10 * torch.log10(1 / total_mse)
 
-
+        return obs_dec, total_mse, total_nuc_loss, cross_recon_loss, cos_loss, total_spec_loss, spec_loss1, total_spec_snr, psnr_obs, psnr_clean, self.dimension_info
 
 class SpectralResE1D1(nn.Module):
     def __init__(self, z_dim: int, n_res_blocks: int=3):
@@ -606,10 +766,6 @@ class SpectralResE1D1(nn.Module):
 #         return obs_dec, total_mse, total_nuc_loss, cross_recon_loss, torch.tensor(0), total_spec_loss, spec_loss1, total_spec_snr, self.dimension_info
 
 
-
-
-import torch
-import torch.nn as nn
 
 class SpectralResE2D2(nn.Module):
     def __init__(self, z_dim1: int, z_dim2: int, n_res_blocks: int = 3):

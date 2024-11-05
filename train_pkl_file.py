@@ -123,7 +123,7 @@ def seed_worker(worker_id):
     random.seed(worker_seed)
 
 def train_spectral_ae(batch_size=32, num_epochs=100, beta_kl=1.0, beta_rec=0.0, 
-                     weight_cross_penalty=0.1, device=0, lr=2e-4, seed=0, randpca=False, z_dim=64 ):
+                     weight_cross_penalty=0.1, device=0, lr=2e-4, seed=0, randpca=True, z_dim=64 ):
     if seed != -1:
         random.seed(seed)
         np.random.seed(seed)
@@ -164,7 +164,7 @@ def train_spectral_ae(batch_size=32, num_epochs=100, beta_kl=1.0, beta_rec=0.0,
     # model = SpectralResE2D2(z_dim1=int(z_dim/2), z_dim2=int(z_dim/2), n_res_blocks=3).to(device)
     model = SpectralResE4D1(z_dim1=int(z_dim/2), z_dim2=int(z_dim/2), z_dim3=int(z_dim/2), z_dim4=int(z_dim/2), n_res_blocks=3, random_bottle_neck=True).to(device)
     # model = SpectralResE1D1(z_dim=int(z_dim/2), n_res_blocks=3).to(device)
-    model_name = "SpecResE2D2"
+    model_name = "SpecResE4D1"
     model.train()
     # Create a CSV file and write the header
     csv_file = f'{model_name}.csv'
@@ -212,9 +212,9 @@ def train_spectral_ae(batch_size=32, num_epochs=100, beta_kl=1.0, beta_rec=0.0,
             # Forward pass
             decoded, mse_loss, nuc_loss, _, cos_loss, spec_loss, spec_loss_dict, spec_snr,psnr_obs, psnr_clean, dim_info = model(
                 noisy_audio_1, 
-                # noisy_audio_2, 
+                noisy_audio_2, 
                 noisy_audio_3, 
-                # noisy_audio_4, 
+                noisy_audio_4, 
                 clean_audio,
                 True,
             )
@@ -324,6 +324,6 @@ if __name__ == "__main__":
         device=args.device,
         lr=args.lr,
         seed=args.seed,
-        randpca=False,
+        randpca=True,
         z_dim=args.z_dim
     )

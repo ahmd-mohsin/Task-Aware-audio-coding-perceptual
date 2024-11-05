@@ -133,7 +133,7 @@ from pkl_file_models import SpectralResE2D1  # Ensure this imports your model
 
 from train_pkl_file import SpectralDataset
 
-def test_spectral_ae(batch_size=8, device=0, model_path="/home/ahmed/Task-Aware-audio-coding-perceptual/models/SpecResE2D2/model_epoch_100.pth"):
+def test_spectral_ae(batch_size=8, device=0, model_path="/home/ahmed/Task-Aware-audio-coding-perceptual/models/SpecResE4D1/model_epoch_100.pth"):
     # Set device
     device = torch.device("cpu") if device <= -1 else torch.device(f"cuda:{device}")
 
@@ -158,8 +158,8 @@ def test_spectral_ae(batch_size=8, device=0, model_path="/home/ahmed/Task-Aware-
 
     # Initialize model and load the checkpoint
     z_dim = 32
-    model = SpectralResE2D2(z_dim1=int(z_dim/2), z_dim2=int(z_dim/2), n_res_blocks=3).to(device)
-    model_name = "SpectralResE2D2" 
+    model = SpectralResE4D1(z_dim1=int(z_dim/2), z_dim2=int(z_dim/2), z_dim3=int(z_dim/2), z_dim4=int(z_dim/2), n_res_blocks=3, random_bottle_neck=True).to(device)
+    model_name = "SpectralResE4D1" 
     checkpoint = torch.load(model_path, map_location=device)
     model.load_state_dict(checkpoint['model_state_dict'])
     model.eval()  # Set model to evaluation mode
@@ -183,9 +183,9 @@ def test_spectral_ae(batch_size=8, device=0, model_path="/home/ahmed/Task-Aware-
             # Forward pass
             decoded, mse_loss, nuc_loss, _, cos_loss, spec_loss, spec_loss_dict, spec_snr,psnr_obs, psnr_clean, dim_info = model(
                 noisy_audio_1, 
-                # noisy_audio_2, 
+                noisy_audio_2, 
                 noisy_audio_3, 
-                # noisy_audio_4, 
+                noisy_audio_4, 
                 clean_audio,
                 random_bottle_neck=True
             )
