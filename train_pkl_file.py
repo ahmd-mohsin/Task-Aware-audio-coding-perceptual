@@ -186,7 +186,7 @@ def train_spectral_ae(batch_size=32, num_epochs=250, beta_kl=1.0, beta_rec=0.0,
     header = [
         "Epoch", "Avg_MSE_Loss", "Avg_Nuclear_Loss", "Avg_Cosine_Loss", 
         "Avg_Spectral_Loss", "Avg_Spectral_SNR", 
-        "Avg_Magnitude_Loss", "Avg_Phase_Loss", "Avg_Total_Loss"
+        "Avg_Magnitude_Loss", "Avg_Phase_Loss", "Avg_Total_Loss", "psnr_obs", "psnr_clean"
     ] + dim_keys
 
     # Write the header once
@@ -198,6 +198,8 @@ def train_spectral_ae(batch_size=32, num_epochs=250, beta_kl=1.0, beta_rec=0.0,
         epoch_losses = []
         mse_losses, nuc_losses, cos_losses, spec_losses, spec_snrs = [], [], [], [], []
         mag_losses, phase_losses, total_losses = [], [], []
+        total_psnr_obs = []
+        total_psnr_clean = []
         epoch_dim_info = defaultdict(list)  # Collect dynamic dim_info per epoch
         batch_idx = 0
         for batch_idx, data in enumerate(track(train_loader, description=f"Epoch {epoch+1}/{num_epochs}:   Batch {batch_idx}/{len(train_loader)} ")):
@@ -208,7 +210,7 @@ def train_spectral_ae(batch_size=32, num_epochs=250, beta_kl=1.0, beta_rec=0.0,
             noisy_audio_4 = data["noisy_audio_4"]
             # print(randpca)
             # Forward pass
-            decoded, mse_loss, nuc_loss, _, cos_loss, spec_loss, spec_loss_dict, spec_snr, dim_info = model(
+            decoded, mse_loss, nuc_loss, _, cos_loss, spec_loss, spec_loss_dict, spec_snr,psnr_obs, psnr_clean, dim_info = model(
                 noisy_audio_1, 
                 # noisy_audio_2, 
                 noisy_audio_3, 
@@ -237,6 +239,8 @@ def train_spectral_ae(batch_size=32, num_epochs=250, beta_kl=1.0, beta_rec=0.0,
             mag_losses.append(spec_loss_dict["magnitude_loss"].item())
             phase_losses.append(spec_loss_dict["phase_loss"].item())
             total_losses.append(spec_loss_dict["total_loss"].item())
+            total_psnr_clean.append(psnr_clean.item())
+            total_psnr_obs.append(psnr_obs.item())
         
 
             # if batch_idx % 10 == 0:
@@ -260,13 +264,15 @@ def train_spectral_ae(batch_size=32, num_epochs=250, beta_kl=1.0, beta_rec=0.0,
         avg_mag_loss = np.mean(mag_losses)
         avg_phase_loss = np.mean(phase_losses)
         avg_total_loss = np.mean(total_losses) 
+        avg_psnr_obs = np.mean(total_psnr_obs) 
+        avg_psnr_clean = np.mean(total_psnr_clean) 
             # Print batch statistics
         
         
         # Prepare data for CSV row
         epoch_row = [
             epoch + 1, avg_mse_loss, avg_nuc_loss, avg_cos_loss, 
-            avg_spec_loss, avg_spec_snr, avg_mag_loss, avg_phase_loss, avg_total_loss
+            avg_spec_loss, avg_spec_snr, avg_mag_loss, avg_phase_loss, avg_total_loss,avg_psnr_obs,avg_psnr_clean
         ]
         
         # Add averaged dim_info values to the row
@@ -296,11 +302,11 @@ def train_spectral_ae(batch_size=32, num_epochs=250, beta_kl=1.0, beta_rec=0.0,
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train Spectral Auto-Encoder")
-    parser.add_argument("-n", "--num_epochs", type=int, default=100)
+    parser.add_argument("-n", "--num_epochs", type=int, default=500)
     parser.add_argument("-z", "--z_dim", type=int, default=32)
     parser.add_argument("-l", "--lr", type=float, default=2e-4)
     parser.add_argument("-bs", "--batch_size", type=int, default=16)
-    parser.add_argument("-r", "--beta_rec", type=float, default=0.1)
+    parser.add_argument("-r", "--beta_rec", type=float, default=1.0)
     parser.add_argument("-k", "--beta_kl", type=float, default=1.0)
     parser.add_argument("-w", "--weight_cross_penalty", type=float, default=0.1)
     parser.add_argument("-s", "--seed", type=int, default=0)
