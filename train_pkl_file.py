@@ -122,7 +122,7 @@ def seed_worker(worker_id):
     np.random.seed(worker_seed)
     random.seed(worker_seed)
 
-def train_spectral_ae(batch_size=32, num_epochs=250, beta_kl=1.0, beta_rec=0.0, 
+def train_spectral_ae(batch_size=32, num_epochs=100, beta_kl=1.0, beta_rec=0.0, 
                      weight_cross_penalty=0.1, device=0, lr=2e-4, seed=0, randpca=True, z_dim=64 ):
     if seed != -1:
         random.seed(seed)
@@ -164,7 +164,7 @@ def train_spectral_ae(batch_size=32, num_epochs=250, beta_kl=1.0, beta_rec=0.0,
     model = SpectralResE2D2(z_dim1=int(z_dim/2), z_dim2=int(z_dim/2), n_res_blocks=3).to(device)
     #  model = SpectralResE4D1(z_dim1=int(z_dim/2), z_dim2=int(z_dim/2), z_dim3=int(z_dim/2), z_dim4=int(z_dim/2), n_res_blocks=3, random_bottle_neck=True).to(device)
     # model = SpectralResE1D1(z_dim=int(z_dim/2), n_res_blocks=3).to(device)
-    model_name = "SpecResE4D1"
+    model_name = "SpecResE2D2"
     model.train()
     # Create a CSV file and write the header
     csv_file = f'{model_name}.csv'
@@ -212,9 +212,9 @@ def train_spectral_ae(batch_size=32, num_epochs=250, beta_kl=1.0, beta_rec=0.0,
             # Forward pass
             decoded, mse_loss, nuc_loss, _, cos_loss, spec_loss, spec_loss_dict, spec_snr,psnr_obs, psnr_clean, dim_info = model(
                 noisy_audio_1, 
-                noisy_audio_2, 
+                # noisy_audio_2, 
                 noisy_audio_3, 
-                noisy_audio_4, 
+                # noisy_audio_4, 
                 clean_audio,
                 True,
             )
@@ -302,7 +302,7 @@ def train_spectral_ae(batch_size=32, num_epochs=250, beta_kl=1.0, beta_rec=0.0,
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train Spectral Auto-Encoder")
-    parser.add_argument("-n", "--num_epochs", type=int, default=500)
+    parser.add_argument("-n", "--num_epochs", type=int, default=100)
     parser.add_argument("-z", "--z_dim", type=int, default=32)
     parser.add_argument("-l", "--lr", type=float, default=2e-4)
     parser.add_argument("-bs", "--batch_size", type=int, default=16)
@@ -311,7 +311,7 @@ if __name__ == "__main__":
     parser.add_argument("-w", "--weight_cross_penalty", type=float, default=0.1)
     parser.add_argument("-s", "--seed", type=int, default=0)
     parser.add_argument("-d", "--device", type=int, default=0)
-    parser.add_argument("-p", "--randpca", type=bool, default=False)
+    parser.add_argument("-p", "--randpca", type=bool, default=True)
     
     args = parser.parse_args()
     
@@ -324,6 +324,6 @@ if __name__ == "__main__":
         device=args.device,
         lr=args.lr,
         seed=args.seed,
-        randpca=True,
+        randpca=False,
         z_dim=args.z_dim
     )
