@@ -1,0 +1,2 @@
+Epoch,Avg_MSE_Loss,Avg_Nuclear_Loss,Avg_Cosine_Loss,Avg_Spectral_Loss,Avg_Spectral_SNR,Avg_Magnitude_Loss,Avg_Phase_Loss,Avg_Total_Loss,psnr_obs,psnr_clean,after_z1,after_z2,before_z1,before_z2
+1.0519216358661652,0.17368178486824035,0.0,1.0519216215610505,0.847265995144844,1.489488878250122,0.6346638298034668,1.0620763313770294,8,8,16,16

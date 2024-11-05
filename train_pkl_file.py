@@ -123,7 +123,7 @@ def seed_worker(worker_id):
     random.seed(worker_seed)
 
 def train_spectral_ae(batch_size=32, num_epochs=100, beta_kl=1.0, beta_rec=0.0, 
-                     weight_cross_penalty=0.1, device=0, lr=2e-4, seed=0, randpca=True, z_dim=64 ):
+                     weight_cross_penalty=0.1, device=0, lr=2e-4, seed=0, randpca=False, z_dim=64 ):
     if seed != -1:
         random.seed(seed)
         np.random.seed(seed)
@@ -137,8 +137,8 @@ def train_spectral_ae(batch_size=32, num_epochs=100, beta_kl=1.0, beta_rec=0.0,
     device = torch.device("cpu") if device <= -1 else torch.device(f"cuda:{device}")
 
     # Define data directories
-    clean_data_dir = "./Data/complex/complex_specs_S02_P08"  # Update with your paths
-    noisy_data_dir = "./Data/complex"  # Update with your paths
+    clean_data_dir = "./Data/complex/complex_specs_S02_P08"  
+    noisy_data_dir = "./Data/complex"  
 
     # Create dataset and dataloader
     train_dataset = SpectralDataset(
@@ -161,8 +161,8 @@ def train_spectral_ae(batch_size=32, num_epochs=100, beta_kl=1.0, beta_rec=0.0,
     # Initialize model
     
     
-    model = SpectralResE2D2(z_dim1=int(z_dim/2), z_dim2=int(z_dim/2), n_res_blocks=3).to(device)
-    #  model = SpectralResE4D1(z_dim1=int(z_dim/2), z_dim2=int(z_dim/2), z_dim3=int(z_dim/2), z_dim4=int(z_dim/2), n_res_blocks=3, random_bottle_neck=True).to(device)
+    # model = SpectralResE2D2(z_dim1=int(z_dim/2), z_dim2=int(z_dim/2), n_res_blocks=3).to(device)
+    model = SpectralResE4D1(z_dim1=int(z_dim/2), z_dim2=int(z_dim/2), z_dim3=int(z_dim/2), z_dim4=int(z_dim/2), n_res_blocks=3, random_bottle_neck=True).to(device)
     # model = SpectralResE1D1(z_dim=int(z_dim/2), n_res_blocks=3).to(device)
     model_name = "SpecResE2D2"
     model.train()
