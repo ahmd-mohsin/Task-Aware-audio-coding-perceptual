@@ -158,8 +158,8 @@ def test_spectral_ae(batch_size=8, device=0, model_path="/home/ahmed/Task-Aware-
 
     # Initialize model and load the checkpoint
     z_dim = 32
-    model = SpectralResE4D1(z_dim1=int(z_dim/2), z_dim2=int(z_dim/2), z_dim3=int(z_dim/2), z_dim4=int(z_dim/2), n_res_blocks=3, random_bottle_neck=True).to(device)
-    model_name = "SpectralResE4D1" 
+    model = SpectralResE1D1(z_dim=int(z_dim/2), n_res_blocks=3).to(device)
+    model_name = "SpectralResE1D1" 
     checkpoint = torch.load(model_path, map_location=device)
     model.load_state_dict(checkpoint['model_state_dict'])
     model.eval()  # Set model to evaluation mode

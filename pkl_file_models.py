@@ -589,6 +589,73 @@ class SpectralResE4D1(nn.Module):
 
         return obs_dec, total_mse, total_nuc_loss, cross_recon_loss, cos_loss, total_spec_loss, spec_loss1, total_spec_snr, psnr_obs, psnr_clean, self.dimension_info
 
+# class SpectralResE1D1(nn.Module):
+#     def __init__(self, z_dim: int, n_res_blocks: int=3):
+#         super().__init__()
+#         # Define input shapes based on spectral data
+#         self.freq_dim = 1025
+#         self.time_dim = 600
+#         self.in_channels = 2  # magnitude, phase
+        
+#         # Initialize spectral encoder and decoder
+#         self.enc = SpectralEncoder(self.in_channels, self.freq_dim, self.time_dim, z_dim, n_res_blocks)
+#         self.dec = SpectralDecoder(self.in_channels, self.freq_dim, self.time_dim, z_dim, n_res_blocks)
+        
+#         self.dimension_info = {}
+
+#     def get_dim_info(self):
+#         return  ["before_z1","after_z1"]
+#     def forward(self, obs, clean, random_bottle_neck):
+#         # print(random_bottle_neck)
+#         # Process input data - stack magnitude and phase
+#         obs_stacked = torch.stack([
+#             obs['magnitude'],
+#             obs['phase'],
+#         ], dim=1).float()  # Shape: (batch, 2, 1025, 600)
+        
+#         # Encode input
+#         z1, _ = self.enc(obs_stacked)
+        
+#         # Split latent representation into private and shared components
+#         num_features = z1.shape[1] // 2
+#         batch_size = z1.shape[0]
+#         z1_private = z1[:, :num_features]
+#         z1_share = z1[:, num_features:]
+        
+#         # Concatenate for decoding
+#         z_sample = torch.cat((z1_private, z1_share), dim=1)
+        
+#         # Decode
+#         obs_dec = self.dec(z_sample)
+        
+#         # Calculate MSE loss
+#         mse = 0.5 * torch.mean((obs_stacked - obs_dec) ** 2, dim=(1, 2, 3))
+        
+#         # Calculate spectral losses
+#         spec_loss = {
+#             "magnitude_loss": torch.mean((obs_stacked[:, 0] - obs_dec[:, 0]) ** 2),
+#             "phase_loss": torch.mean((obs_stacked[:, 1] - obs_dec[:, 1]) ** 2),
+#             "total_loss": torch.mean((obs_stacked - obs_dec) ** 2)
+#         }
+        
+#         # Calculate spectral SNR instead of PSNR
+#         spec_snr = -10 * torch.log10(torch.mean((obs_stacked - obs_dec) ** 2) / torch.mean(obs_stacked ** 2))
+        
+#         # Normalize latent representation
+#         z_sample = z_sample - z_sample.mean(dim=0)
+        
+#         # Calculate nuclear loss
+#         z_sample = z_sample / torch.norm(z_sample, p=2)
+#         nuc_loss = torch.norm(z_sample, p='nuc', dim=(0, 1)) / batch_size
+        
+#         # Store dimension information
+#         self.dimension_info = {
+#             "before_z1": z1.shape[1],
+#             "after_z2": num_features
+#         }
+        
+#         return obs_dec, torch.mean(mse), nuc_loss, torch.tensor(0), torch.tensor(0), spec_loss["total_loss"], spec_loss, spec_snr, self.dimension_info
+    
 class SpectralResE1D1(nn.Module):
     def __init__(self, z_dim: int, n_res_blocks: int=3):
         super().__init__()
@@ -604,9 +671,9 @@ class SpectralResE1D1(nn.Module):
         self.dimension_info = {}
 
     def get_dim_info(self):
-        return  ["before_z1","after_z1"]
+        return ["before_z1", "after_z1"]
+
     def forward(self, obs, clean, random_bottle_neck):
-        # print(random_bottle_neck)
         # Process input data - stack magnitude and phase
         obs_stacked = torch.stack([
             obs['magnitude'],
@@ -631,6 +698,12 @@ class SpectralResE1D1(nn.Module):
         # Calculate MSE loss
         mse = 0.5 * torch.mean((obs_stacked - obs_dec) ** 2, dim=(1, 2, 3))
         
+        # Calculate PSNR (new)
+        max_pixel_value = 1.0  # Assuming inputs are normalized between 0 and 1
+        psnr_obs = 10 * torch.log10(max_pixel_value ** 2 / mse.mean())
+        # Since we don't have clean reconstruction in E1D1, we'll set psnr_clean equal to psnr_obs
+        psnr_clean = psnr_obs
+        
         # Calculate spectral losses
         spec_loss = {
             "magnitude_loss": torch.mean((obs_stacked[:, 0] - obs_dec[:, 0]) ** 2),
@@ -638,7 +711,7 @@ class SpectralResE1D1(nn.Module):
             "total_loss": torch.mean((obs_stacked - obs_dec) ** 2)
         }
         
-        # Calculate spectral SNR instead of PSNR
+        # Calculate spectral SNR
         spec_snr = -10 * torch.log10(torch.mean((obs_stacked - obs_dec) ** 2) / torch.mean(obs_stacked ** 2))
         
         # Normalize latent representation
@@ -651,11 +724,23 @@ class SpectralResE1D1(nn.Module):
         # Store dimension information
         self.dimension_info = {
             "before_z1": z1.shape[1],
-            "after_z2": num_features
+            "after_z1": num_features  # Fixed key name to match get_dim_info
         }
         
-        return obs_dec, torch.mean(mse), nuc_loss, torch.tensor(0), torch.tensor(0), spec_loss["total_loss"], spec_loss, spec_snr, self.dimension_info
-    
+        # Return 11 values to match E2D2
+        return (
+            obs_dec,              # Reconstructed observation
+            torch.mean(mse),      # Mean MSE loss
+            nuc_loss,            # Nuclear loss
+            torch.tensor(0),      # Cross reconstruction loss (0 for E1D1)
+            torch.tensor(0),      # Additional loss term (0 for E1D1)
+            spec_loss["total_loss"], # Total spectral loss
+            spec_loss,           # Detailed spectral losses
+            spec_snr,            # Spectral SNR
+            psnr_obs,            # PSNR for observation (new)
+            psnr_clean,          # PSNR for clean (new, same as psnr_obs)
+            self.dimension_info   # Dimension information
+        )   
 
 # class SpectralResE2D2(nn.Module):
 #     def __init__(self, z_dim1: int,z_dim2: int, n_res_blocks: int=3):
