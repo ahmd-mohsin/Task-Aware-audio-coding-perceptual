@@ -298,8 +298,8 @@ class SpectralResE2D1(nn.Module):
         total_spec_loss = spec_loss["total_loss"]
         spec_loss1 = spec_loss
         total_spec_snr = spec_snr
-        psnr_obs = 10 * torch.log10(1 / total_mse)
-        psnr_clean = 10 * torch.log10(1 / total_mse)
+        psnr_obs = 10 * torch.log10(torch.max(obs1['magnitude']).item() / total_mse)
+        psnr_clean = 10 * torch.log10(torch.max(obs1['magnitude']).item() / total_mse)
 
         return obs_dec, total_mse, total_nuc_loss, cross_recon_loss, cos_loss, total_spec_loss, spec_loss1, total_spec_snr, psnr_obs, psnr_clean, self.dimension_info
 
@@ -587,8 +587,8 @@ class SpectralResE4D1(nn.Module):
         total_spec_loss = spec_loss["total_loss"]
         spec_loss1 = spec_loss
         total_spec_snr = spec_snr
-        psnr_obs = 10 * torch.log10(1 / total_mse)
-        psnr_clean = 10 * torch.log10(1 / total_mse)
+        psnr_obs = 10 * torch.log10(torch.max(obs1['magnitude']).item() / total_mse)
+        psnr_clean = 10 * torch.log10(torch.max(obs1['magnitude']).item() / total_mse)
 
         return obs_dec, total_mse, total_nuc_loss, cross_recon_loss, cos_loss, total_spec_loss, spec_loss1, total_spec_snr, psnr_obs, psnr_clean, self.dimension_info
 
@@ -615,7 +615,7 @@ class SpectralResE1D1(nn.Module):
             obs['magnitude'],
             obs['phase'],
         ], dim=1).float()  # Shape: (batch, 2, 1025, 600)
-        
+        # print())
         print(obs['magnitude'].shape, obs['phase'].shape, obs_stacked.shape)
 
         # Encode input
@@ -635,7 +635,6 @@ class SpectralResE1D1(nn.Module):
         
         # Calculate MSE loss
         mse = 0.5 * torch.mean((obs_stacked - obs_dec) ** 2, dim=(1, 2, 3))
-        
         # Calculate spectral losses
         spec_loss = {
             "magnitude_loss": torch.mean((obs_stacked[:, 0] - obs_dec[:, 0]) ** 2),
@@ -658,8 +657,10 @@ class SpectralResE1D1(nn.Module):
             "before_z1": z1.shape[1],
             "after_z2": num_features
         }
+        psnr_obs = 10 * torch.log10(torch.max(obs["magnitude"]).item() / torch.mean(mse))
+        psnr_clean = 10 * torch.log10(torch.max(obs["magnitude"]).item() / torch.mean(mse))
         
-        return obs_dec, torch.mean(mse), nuc_loss, torch.tensor(0), torch.tensor(0), spec_loss["total_loss"], spec_loss, spec_snr, self.dimension_info
+        return obs_dec, torch.mean(mse), nuc_loss, torch.tensor(0), torch.tensor(0), spec_loss["total_loss"], spec_loss, spec_snr, psnr_obs, psnr_clean, self.dimension_info
     
 
 # class SpectralResE2D2(nn.Module):
@@ -835,7 +836,7 @@ class SpectralResE2D2(nn.Module):
         mse2 = 0.5 * torch.mean((clean_stacked - clean_dec) ** 2, dim=(1, 2, 3))
         
         # Calculate PSNR
-        max_pixel_value = 1.0  # Assuming inputs are normalized between 0 and 1
+        max_pixel_value = torch.max(obs1['magnitude']).item()  # Assuming inputs are normalized between 0 and 1
         psnr_obs = 10 * torch.log10(max_pixel_value ** 2 / mse1.mean())
         psnr_clean = 10 * torch.log10(max_pixel_value ** 2 / mse2.mean())
         
