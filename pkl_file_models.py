@@ -209,7 +209,7 @@ class SpectralResE2D1(nn.Module):
         
         self.enc1 = SpectralEncoder(self.in_channels, self.freq_dim, self.time_dim, z_dim1, n_res_blocks)
         self.enc2 = SpectralEncoder(self.in_channels, self.freq_dim, self.time_dim, z_dim2, n_res_blocks)
-        self.dec = SpectralDecoder(self.in_channels, self.freq_dim, self.time_dim, z_dim1 + z_dim2, n_res_blocks)
+        self.dec = SpectralDecoder(self.in_channels*2, self.freq_dim, self.time_dim, z_dim1 + z_dim2, n_res_blocks)
         
         self.dimension_info = {}
     def get_dim_info(self):
@@ -233,14 +233,17 @@ class SpectralResE2D1(nn.Module):
         z2, _ = self.enc2(obs2_stacked)
         
         # Original data for reconstruction loss
-        obs = obs1_stacked  # Using obs1 as target
-        
+        # obs = obs1_stacked  # Using obs1 as target
+        obs = torch.cat((obs1_stacked, obs2_stacked), dim=1)
+        z_sample = torch.cat((z1, z2), dim=1)
+        # print(z1.shape, z2.shape, )
         batch_size = z1.shape[0]
         num_features = z1.shape[1] + z2.shape[1]
 
         if random_bottle_neck:
-            dim_p = torch.randint(8, int(num_features/2), (1,)).item()
-            
+            dim_p = torch.randint(int(num_features/2)-3, int(num_features/2), (1,)).item()
+            # dim_p = int(num_features/2)
+            # print(dim_p, num_features)
             s_1, v_1, mu_1 = data_pca(z1)
             s_2, v_2, mu_2 = data_pca(z2)
             
@@ -252,23 +255,23 @@ class SpectralResE2D1(nn.Module):
             
             z1_p = torch.matmul(z1 - mu_1, v_1[:,ind_1])
             z2_p = torch.matmul(z2 - mu_2, v_2[:,ind_2])
-            
+            # print(z1.shape,z2.shape,z1_p.shape,z2_p.shape)
             self.dimension_info = {
                 "before_z1": z1.shape[1],
                 "before_z2": z2.shape[1],
                 "after_z1": z1_p.shape[1],
-                "after_z2": z2_p.shape[1],
+                "after_z2": z2_p.shape[1]
             }
             
             z1 = torch.matmul(z1_p, v_1[:,ind_1].T) + mu_1
             z2 = torch.matmul(z2_p, v_2[:,ind_2].T) + mu_2
+            z_sample = torch.cat((z1, z2), dim=1)
         
         cos_sim = torch.nn.CosineSimilarity()
         cos_loss = torch.mean(cos_sim(z1, z2))
-        z_sample = torch.cat((z1, z2), dim=1)
         
         obs_dec = self.dec(z_sample)
-        
+        # print(obs_dec.shape, obs.shape)
         # Calculate losses
         mse = 0.5 * torch.mean((obs - obs_dec) ** 2, dim=(1, 2, 3))
         
@@ -295,8 +298,8 @@ class SpectralResE2D1(nn.Module):
         total_spec_loss = spec_loss["total_loss"]
         spec_loss1 = spec_loss
         total_spec_snr = spec_snr
-        psnr_obs = 10 * torch.log10(1 / total_mse)
-        psnr_clean = 10 * torch.log10(1 / total_mse)
+        psnr_obs = 10 * torch.log10(torch.max(obs1['magnitude']).item() / total_mse)
+        psnr_clean = 10 * torch.log10(torch.max(obs1['magnitude']).item() / total_mse)
 
         return obs_dec, total_mse, total_nuc_loss, cross_recon_loss, cos_loss, total_spec_loss, spec_loss1, total_spec_snr, psnr_obs, psnr_clean, self.dimension_info
 
@@ -584,8 +587,8 @@ class SpectralResE4D1(nn.Module):
         total_spec_loss = spec_loss["total_loss"]
         spec_loss1 = spec_loss
         total_spec_snr = spec_snr
-        psnr_obs = 10 * torch.log10(1 / total_mse)
-        psnr_clean = 10 * torch.log10(1 / total_mse)
+        psnr_obs = 10 * torch.log10(torch.max(obs1['magnitude']).item() / total_mse)
+        psnr_clean = 10 * torch.log10(torch.max(obs1['magnitude']).item() / total_mse)
 
         return obs_dec, total_mse, total_nuc_loss, cross_recon_loss, cos_loss, total_spec_loss, spec_loss1, total_spec_snr, psnr_obs, psnr_clean, self.dimension_info
 
@@ -679,7 +682,9 @@ class SpectralResE1D1(nn.Module):
             obs['magnitude'],
             obs['phase'],
         ], dim=1).float()  # Shape: (batch, 2, 1025, 600)
-        
+        # print())
+        print(obs['magnitude'].shape, obs['phase'].shape, obs_stacked.shape)
+
         # Encode input
         z1, _ = self.enc(obs_stacked)
         
@@ -697,6 +702,7 @@ class SpectralResE1D1(nn.Module):
         
         # Calculate MSE loss
         mse = 0.5 * torch.mean((obs_stacked - obs_dec) ** 2, dim=(1, 2, 3))
+<<<<<<< HEAD
         
         # Calculate PSNR (new)
         max_pixel_value = 1.0  # Assuming inputs are normalized between 0 and 1
@@ -704,6 +710,8 @@ class SpectralResE1D1(nn.Module):
         # Since we don't have clean reconstruction in E1D1, we'll set psnr_clean equal to psnr_obs
         psnr_clean = psnr_obs
         
+=======
+>>>>>>> 4fa317ce5e6897961e28e3a5718dacb676a2d12e
         # Calculate spectral losses
         spec_loss = {
             "magnitude_loss": torch.mean((obs_stacked[:, 0] - obs_dec[:, 0]) ** 2),
@@ -726,7 +734,10 @@ class SpectralResE1D1(nn.Module):
             "before_z1": z1.shape[1],
             "after_z1": num_features  # Fixed key name to match get_dim_info
         }
+        psnr_obs = 10 * torch.log10(torch.max(obs["magnitude"]).item() / torch.mean(mse))
+        psnr_clean = 10 * torch.log10(torch.max(obs["magnitude"]).item() / torch.mean(mse))
         
+<<<<<<< HEAD
         # Return 11 values to match E2D2
         return (
             obs_dec,              # Reconstructed observation
@@ -741,6 +752,10 @@ class SpectralResE1D1(nn.Module):
             psnr_clean,          # PSNR for clean (new, same as psnr_obs)
             self.dimension_info   # Dimension information
         )   
+=======
+        return obs_dec, torch.mean(mse), nuc_loss, torch.tensor(0), torch.tensor(0), spec_loss["total_loss"], spec_loss, spec_snr, psnr_obs, psnr_clean, self.dimension_info
+    
+>>>>>>> 4fa317ce5e6897961e28e3a5718dacb676a2d12e
 
 # class SpectralResE2D2(nn.Module):
 #     def __init__(self, z_dim1: int,z_dim2: int, n_res_blocks: int=3):
@@ -915,7 +930,7 @@ class SpectralResE2D2(nn.Module):
         mse2 = 0.5 * torch.mean((clean_stacked - clean_dec) ** 2, dim=(1, 2, 3))
         
         # Calculate PSNR
-        max_pixel_value = 1.0  # Assuming inputs are normalized between 0 and 1
+        max_pixel_value = torch.max(obs1['magnitude']).item()  # Assuming inputs are normalized between 0 and 1
         psnr_obs = 10 * torch.log10(max_pixel_value ** 2 / mse1.mean())
         psnr_clean = 10 * torch.log10(max_pixel_value ** 2 / mse2.mean())
         

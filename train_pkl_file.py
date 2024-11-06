@@ -162,9 +162,16 @@ def train_spectral_ae(batch_size=32, num_epochs=100, beta_kl=1.0, beta_rec=0.0,
     
     
     # model = SpectralResE2D2(z_dim1=int(z_dim/2), z_dim2=int(z_dim/2), n_res_blocks=3).to(device)
+<<<<<<< HEAD
     # model = SpectralResE1D1(z_dim1=int(z_dim/2), z_dim2=int(z_dim/2), z_dim3=int(z_dim/2), z_dim4=int(z_dim/2), n_res_blocks=3, random_bottle_neck=True).to(device)
     model = SpectralResE1D1(z_dim=int(z_dim/2), n_res_blocks=3).to(device)
     model_name = "SpecResE1D1"
+=======
+    # model = SpectralResE4D1(z_dim1=int(z_dim/2), z_dim2=int(z_dim/2), z_dim3=int(z_dim/2), z_dim4=int(z_dim/2), n_res_blocks=3, random_bottle_neck=True).to(device)
+    model = SpectralResE2D1(z_dim1=int(z_dim/2), z_dim2=int(z_dim/2), n_res_blocks=3).to(device)
+    # model = SpectralResE1D1(z_dim=int(z_dim/2), n_res_blocks=3).to(device)
+    model_name = "SpecResE2D1_z_dim_128"
+>>>>>>> 4fa317ce5e6897961e28e3a5718dacb676a2d12e
     model.train()
     # Create a CSV file and write the header
     csv_file = f'{model_name}.csv'
@@ -179,7 +186,7 @@ def train_spectral_ae(batch_size=32, num_epochs=100, beta_kl=1.0, beta_rec=0.0,
     #     sample_batch["clean_audio"],
     #     random_bottle_neck=randpca
     # )
-    dim_keys = sorted(model.get_dim_info())  # Store sorted keys for consistent order
+    dim_keys = model.get_dim_info()  # Store sorted keys for consistent order
 
     optimizer = optim.Adam(model.parameters(), lr=lr)
     # Initialize CSV header
@@ -208,13 +215,24 @@ def train_spectral_ae(batch_size=32, num_epochs=100, beta_kl=1.0, beta_rec=0.0,
             noisy_audio_2 = data["noisy_audio_2"]
             noisy_audio_3 = data["noisy_audio_3"]
             noisy_audio_4 = data["noisy_audio_4"]
+            if clean_audio["magnitude"].shape[0] != batch_size:
+                continue
+            # a =clean_audio["magnitude"]
+            # print(f"Shape of  {a.shape}")
+
             # print(randpca)
             # Forward pass
             decoded, mse_loss, nuc_loss, _, cos_loss, spec_loss, spec_loss_dict, spec_snr,psnr_obs, psnr_clean, dim_info = model(
                 noisy_audio_1, 
+<<<<<<< HEAD
                 #noisy_audio_2, 
                 #noisy_audio_3, 
                 #noisy_audio_4, 
+=======
+                # noisy_audio_2, 
+                noisy_audio_3, 
+                # noisy_audio_4, 
+>>>>>>> 4fa317ce5e6897961e28e3a5718dacb676a2d12e
                 clean_audio,
                 True,
             )
@@ -274,9 +292,9 @@ def train_spectral_ae(batch_size=32, num_epochs=100, beta_kl=1.0, beta_rec=0.0,
             epoch + 1, avg_mse_loss, avg_nuc_loss, avg_cos_loss, 
             avg_spec_loss, avg_spec_snr, avg_mag_loss, avg_phase_loss, avg_total_loss,avg_psnr_obs,avg_psnr_clean
         ]
-        
+        # print(dim_info)
         # Add averaged dim_info values to the row
-        for key in sorted(dim_info.keys()):
+        for key in dim_info.keys():
             # avg_dim_value = np.mean(epoch_dim_info[key])  # Average value for this key
             epoch_row.append(dim_info[key])
         
@@ -303,7 +321,7 @@ def train_spectral_ae(batch_size=32, num_epochs=100, beta_kl=1.0, beta_rec=0.0,
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train Spectral Auto-Encoder")
     parser.add_argument("-n", "--num_epochs", type=int, default=100)
-    parser.add_argument("-z", "--z_dim", type=int, default=32)
+    parser.add_argument("-z", "--z_dim", type=int, default=256)
     parser.add_argument("-l", "--lr", type=float, default=2e-4)
     parser.add_argument("-bs", "--batch_size", type=int, default=16)
     parser.add_argument("-r", "--beta_rec", type=float, default=1.0)
