@@ -133,7 +133,7 @@ from pkl_file_models import SpectralResE2D1  # Ensure this imports your model
 
 from train_pkl_file import SpectralDataset
 
-def test_spectral_ae(batch_size=8, device=0, model_path="/home/ahmed/Task-Aware-audio-coding-perceptual/models/SpecResE2D1_z_dim_128/model_epoch_100.pth"):
+def test_spectral_ae(batch_size=8, device=0, model_path="/home/ahmed/Task-Aware-audio-coding-perceptual/models/SpecResE1D1/model_epoch_100.pth"):
     # Set device
     device = torch.device("cpu") if device <= -1 else torch.device(f"cuda:{device}")
 
@@ -157,19 +157,9 @@ def test_spectral_ae(batch_size=8, device=0, model_path="/home/ahmed/Task-Aware-
     )
 
     # Initialize model and load the checkpoint
-<<<<<<< HEAD
     z_dim = 32
-    model = SpectralResE1D1(z_dim=int(z_dim/2), n_res_blocks=3).to(device)
+    model = SpectralResE1D1(z_dim1=int(z_dim=int(z_dim/2), n_res_blocks=3)).to(device)
     model_name = "SpectralResE1D1" 
-=======
-    # z_dim = 32
-    z_dim = 256
-    # model = SpectralResE4D1(z_dim1=int(z_dim/2), z_dim2=int(z_dim/2), z_dim3=int(z_dim/2), z_dim4=int(z_dim/2), n_res_blocks=3, random_bottle_neck=True).to(device)
-    # model = SpectralResE2D2(z_dim1=int(z_dim/2), z_dim2=int(z_dim/2), n_res_blocks=3).to(device)
-    # model = SpectralResE2D1(z_dim1=int(z_dim/2), z_dim2=int(z_dim/2), n_res_blocks=3).to(device)
-    model = SpectralResE1D1(z_dim=int(z_dim/2), n_res_blocks=3).to(device)
-    model_name = "SpectralResE1D1_z_dim_128" 
->>>>>>> 4fa317ce5e6897961e28e3a5718dacb676a2d12e
     checkpoint = torch.load(model_path, map_location=device)
     model.load_state_dict(checkpoint['model_state_dict'])
     model.eval()  # Set model to evaluation mode
@@ -192,12 +182,12 @@ def test_spectral_ae(batch_size=8, device=0, model_path="/home/ahmed/Task-Aware-
 
             # Forward pass
             decoded, mse_loss, nuc_loss, _, cos_loss, spec_loss, spec_loss_dict, spec_snr,psnr_obs, psnr_clean, dim_info = model(
-                # noisy_audio_1, 
+                noisy_audio_1, 
                 # noisy_audio_2, 
                 # noisy_audio_3, 
-                noisy_audio_4, 
+                # noisy_audio_4, 
                 clean_audio,
-                True
+                random_bottle_neck=True
             )
 
            
@@ -276,7 +266,7 @@ def test_spectral_ae(batch_size=8, device=0, model_path="/home/ahmed/Task-Aware-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train Spectral Auto-Encoder")
     parser.add_argument("-n", "--num_epochs", type=int, default=100)
-    parser.add_argument("-z", "--z_dim", type=int, default=128)
+    parser.add_argument("-z", "--z_dim", type=int, default=32)
     parser.add_argument("-l", "--lr", type=float, default=2e-4)
     parser.add_argument("-bs", "--batch_size", type=int, default=16)
     parser.add_argument("-r", "--beta_rec", type=float, default=0.1)
@@ -287,4 +277,4 @@ if __name__ == "__main__":
     parser.add_argument("-p", "--randpca", type=bool, default=False)
     
     args = parser.parse_args()
-    test_spectral_ae(model_path="./models/SpecResE1D1_z_dim_128/model_epoch_100.pth")
+    test_spectral_ae()
