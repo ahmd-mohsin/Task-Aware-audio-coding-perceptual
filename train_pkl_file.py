@@ -28,11 +28,11 @@ class SpectralDataset(Dataset):
         
         # Initialize four noisy data directories
         self.noisy_data_dir1 = Path(noisy_data_dir, "complex_specs_S02_P08_U02.CH3", file_type)
-        # self.noisy_data_dir2 = Path(noisy_data_dir, "complex_specs_S02_P08_U02.CH3", file_type)
-        self.noisy_data_dir2 = Path(noisy_data_dir, "complex_specs_S02_P08_U03.CH3", file_type)
+        self.noisy_data_dir2 = Path(noisy_data_dir, "complex_specs_S02_P08_U02.CH3", file_type)
+        # self.noisy_data_dir2 = Path(noisy_data_dir, "complex_specs_S02_P08_U03.CH3", file_type)
         self.noisy_data_dir3 = Path(noisy_data_dir, "complex_specs_S02_P08_U04.CH3", file_type)
-        # self.noisy_data_dir4 = Path(noisy_data_dir, "complex_specs_S02_P08_U04.CH3", file_type)
-        self.noisy_data_dir4 = Path(noisy_data_dir, "complex_specs_S02_P08_U05.CH3", file_type)
+        self.noisy_data_dir4 = Path(noisy_data_dir, "complex_specs_S02_P08_U04.CH3", file_type)
+        # self.noisy_data_dir4 = Path(noisy_data_dir, "complex_specs_S02_P08_U05.CH3", file_type)
         
         self.device = device
         
@@ -163,9 +163,9 @@ def train_spectral_ae(batch_size=32, num_epochs=100, beta_kl=1.0, beta_rec=0.0,
     
     # model = SpectralResE2D2(z_dim1=int(z_dim/2), z_dim2=int(z_dim/2), n_res_blocks=3).to(device)
     # model = SpectralResE4D1(z_dim1=int(z_dim/2), z_dim2=int(z_dim/2), z_dim3=int(z_dim/2), z_dim4=int(z_dim/2), n_res_blocks=3, random_bottle_neck=True).to(device)
-    model = SpectralResE2D1(z_dim1=int(z_dim/2), z_dim2=int(z_dim/2), n_res_blocks=3).to(device)
-    # model = SpectralResE1D1(z_dim=int(z_dim/2), n_res_blocks=3).to(device)
-    model_name = "SpecResE2D1_z_dim_128"
+    # model = SpectralResE2D1(z_dim1=int(z_dim/2), z_dim2=int(z_dim/2), n_res_blocks=3).to(device)
+    model = SpectralResE1D1(z_dim=int(z_dim/2), n_res_blocks=3).to(device)
+    model_name = "SpecResE1D1_z_dim_128"
     model.train()
     # Create a CSV file and write the header
     csv_file = f'{model_name}.csv'
@@ -219,7 +219,7 @@ def train_spectral_ae(batch_size=32, num_epochs=100, beta_kl=1.0, beta_rec=0.0,
             decoded, mse_loss, nuc_loss, _, cos_loss, spec_loss, spec_loss_dict, spec_snr,psnr_obs, psnr_clean, dim_info = model(
                 noisy_audio_1, 
                 # noisy_audio_2, 
-                noisy_audio_3, 
+                # noisy_audio_3, 
                 # noisy_audio_4, 
                 clean_audio,
                 True,
@@ -280,7 +280,7 @@ def train_spectral_ae(batch_size=32, num_epochs=100, beta_kl=1.0, beta_rec=0.0,
             epoch + 1, avg_mse_loss, avg_nuc_loss, avg_cos_loss, 
             avg_spec_loss, avg_spec_snr, avg_mag_loss, avg_phase_loss, avg_total_loss,avg_psnr_obs,avg_psnr_clean
         ]
-        print(dim_info)
+        # print(dim_info)
         # Add averaged dim_info values to the row
         for key in dim_info.keys():
             # avg_dim_value = np.mean(epoch_dim_info[key])  # Average value for this key

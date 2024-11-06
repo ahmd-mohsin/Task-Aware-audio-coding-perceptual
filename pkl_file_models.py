@@ -241,8 +241,8 @@ class SpectralResE2D1(nn.Module):
         num_features = z1.shape[1] + z2.shape[1]
 
         if random_bottle_neck:
-            # dim_p = torch.randint(8, int(num_features/2), (1,)).item()
-            dim_p = int(num_features/2)
+            dim_p = torch.randint(int(num_features/2)-3, int(num_features/2), (1,)).item()
+            # dim_p = int(num_features/2)
             # print(dim_p, num_features)
             s_1, v_1, mu_1 = data_pca(z1)
             s_2, v_2, mu_2 = data_pca(z2)
@@ -616,6 +616,8 @@ class SpectralResE1D1(nn.Module):
             obs['phase'],
         ], dim=1).float()  # Shape: (batch, 2, 1025, 600)
         
+        print(obs['magnitude'].shape, obs['phase'].shape, obs_stacked.shape)
+
         # Encode input
         z1, _ = self.enc(obs_stacked)
         
