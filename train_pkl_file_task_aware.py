@@ -243,7 +243,7 @@ def task_aware(noisy_audio_batch, clean_audio_batch):
         reconstructed_noisy_waveform = reconstruct_waveform(noisy_mag, noisy_phase, sample_rate)
         # print(reconstructed_noisy_waveform.shape)
         # Step 2: Use SpeechBrain's model to enhance the noisy audio
-        # est_sources = speech_branin_model.separate_file(path=None, wav=reconstructed_noisy_waveform)
+        # est_sources = speech_branin _model.separate_file(path=None, wav=reconstructed_noisy_waveform)
         est_sources = speech_branin_model.separate_batch(mix=reconstructed_noisy_waveform)
         enhanced_audio = est_sources[:, :, 0].detach().cpu()  # First separated source as enhanced
 
