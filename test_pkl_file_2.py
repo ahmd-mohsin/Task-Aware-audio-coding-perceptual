@@ -216,8 +216,9 @@ def test_spectral_ae(batch_size=8, device=0, z_dim = None, total_feature_after =
                 noisy_audio_2, 
                 # noisy_audio_3, 
                 # noisy_audio_4, 
+                # noisy_audio_4, 
                 clean_audio,
-                True
+                random_bottle_neck=True
             )
 
            
