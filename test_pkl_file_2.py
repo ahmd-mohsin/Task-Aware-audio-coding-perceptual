@@ -14,7 +14,10 @@ from pkl_file_models import *
 import random
 import torch.nn.functional as F
 from collections import defaultdict
-
+def normalize_tensor(tensor):
+    min_val = tensor.min()
+    max_val = tensor.max()
+    return (tensor - min_val) / (max_val - min_val)
 
 class SpectralDataset(Dataset):
     def __init__(self, clean_data_dir, noisy_data_dir, file_type='Train', device=None):
@@ -28,12 +31,13 @@ class SpectralDataset(Dataset):
         
         # Initialize four noisy data directories
         self.noisy_data_dir1 = Path(noisy_data_dir, "complex_specs_S02_P08_U02.CH3", file_type)
-        self.noisy_data_dir2 = Path(noisy_data_dir, "complex_specs_S02_P08_U02.CH3", file_type)
-        # self.noisy_data_dir2 = Path(noisy_data_dir, "complex_specs_S02_P08_U03.CH3", file_type)
+        # self.noisy_data_dir2 = Path(noisy_data_dir, "complex_specs_S02_P08_U02.CH3", file_type)
+        self.noisy_data_dir2 = Path(noisy_data_dir, "complex_specs_S02_P08_U03.CH3", file_type)
         self.noisy_data_dir3 = Path(noisy_data_dir, "complex_specs_S02_P08_U04.CH3", file_type)
-        self.noisy_data_dir4 = Path(noisy_data_dir, "complex_specs_S02_P08_U04.CH3", file_type)
-        # self.noisy_data_dir4 = Path(noisy_data_dir, "complex_specs_S02_P08_U05.CH3", file_type)
+        # self.noisy_data_dir4 = Path(noisy_data_dir, "complex_specs_S02_P08_U04.CH3", file_type)
+        self.noisy_data_dir4 = Path(noisy_data_dir, "complex_specs_S02_P08_U05.CH3", file_type)
         
+
         self.device = device
         
         # Get all pkl files in clean and noisy directories
@@ -88,6 +92,23 @@ class SpectralDataset(Dataset):
         noisy4_magnitude = self.pad_tensor(torch.from_numpy(noisy_data_4["magnitude"]).float(), self.target_shape).to(self.device)
         noisy4_phase = self.pad_tensor(torch.from_numpy(noisy_data_4["phase"]).float(), self.target_shape).to(self.device)
 
+
+        # Normalize and pad tensors
+        clean_magnitude = normalize_tensor(self.pad_tensor(torch.from_numpy(clean_data["magnitude"]).float(), self.target_shape)).to(self.device)
+        clean_phase = normalize_tensor(self.pad_tensor(torch.from_numpy(clean_data["phase"]).float(), self.target_shape)).to(self.device)
+
+        noisy1_magnitude = normalize_tensor(self.pad_tensor(torch.from_numpy(noisy_data_1["magnitude"]).float(), self.target_shape)).to(self.device)
+        noisy1_phase = normalize_tensor(self.pad_tensor(torch.from_numpy(noisy_data_1["phase"]).float(), self.target_shape)).to(self.device)
+
+        noisy2_magnitude = normalize_tensor(self.pad_tensor(torch.from_numpy(noisy_data_2["magnitude"]).float(), self.target_shape)).to(self.device)
+        noisy2_phase = normalize_tensor(self.pad_tensor(torch.from_numpy(noisy_data_2["phase"]).float(), self.target_shape)).to(self.device)
+
+        noisy3_magnitude = normalize_tensor(self.pad_tensor(torch.from_numpy(noisy_data_3["magnitude"]).float(), self.target_shape)).to(self.device)
+        noisy3_phase = normalize_tensor(self.pad_tensor(torch.from_numpy(noisy_data_3["phase"]).float(), self.target_shape)).to(self.device)
+
+        noisy4_magnitude = normalize_tensor(self.pad_tensor(torch.from_numpy(noisy_data_4["magnitude"]).float(), self.target_shape)).to(self.device)
+        noisy4_phase = normalize_tensor(self.pad_tensor(torch.from_numpy(noisy_data_4["phase"]).float(), self.target_shape)).to(self.device)
+
         return {
             "clean_audio": {
                 "magnitude": clean_magnitude,
@@ -132,8 +153,8 @@ from collections import defaultdict
 from pkl_file_models import SpectralResE2D1  # Ensure this imports your model 
 
 from train_pkl_file import SpectralDataset
-
-def test_spectral_ae(batch_size=8, device=0, model_path="/home/ahmed/Task-Aware-audio-coding-perceptual/models/SpecResE2D1_z_dim_128/model_epoch_100.pth"):
+BASE_PATH = "./"
+def test_spectral_ae(batch_size=8, device=0, z_dim = None, total_feature_after = 256, epoch_no = 100):
     # Set device
     device = torch.device("cpu") if device <= -1 else torch.device(f"cuda:{device}")
 
@@ -148,22 +169,27 @@ def test_spectral_ae(batch_size=8, device=0, model_path="/home/ahmed/Task-Aware-
         device=device,
         file_type="Test"
     )
-
+    g = torch.Generator()
+    g.manual_seed(0)
     test_loader = DataLoader(
         dataset=test_dataset,
         batch_size=batch_size,
-        shuffle=False,
-        drop_last=False
+        shuffle=True,
+        drop_last=False,
+        worker_init_fn=seed_worker,
+        generator=g,
     )
 
     # Initialize model and load the checkpoint
     # z_dim = 32
-    z_dim = 256
-    # model = SpectralResE4D1(z_dim1=int(z_dim/2), z_dim2=int(z_dim/2), z_dim3=int(z_dim/2), z_dim4=int(z_dim/2), n_res_blocks=3, random_bottle_neck=True).to(device)
-    # model = SpectralResE2D2(z_dim1=int(z_dim/2), z_dim2=int(z_dim/2), n_res_blocks=3).to(device)
+    # z_dim = 256
+    # model = SpectralResE4D1(z_dim1=int(z_dim/2), z_dim2=int(z_dim/2), z_dim3=int(z_dim/2), z_dim4=int(z_dim/2), n_res_blocks=3, random_bottle_neck=True, total_features_after=total_feature_after).to(device)
+    model = SpectralResE2D2(z_dim1=int(z_dim/2), z_dim2=int(z_dim/2), n_res_blocks=3, total_features_after=total_feature_after).to(device)
     # model = SpectralResE2D1(z_dim1=int(z_dim/2), z_dim2=int(z_dim/2), n_res_blocks=3).to(device)
-    model = SpectralResE1D1(z_dim=int(z_dim/2), n_res_blocks=3).to(device)
-    model_name = "SpectralResE1D1_z_dim_128" 
+    # model = SpectralResE1D1(z_dim=int(z_dim), n_res_blocks=3, total_features_after=total_feature_after).to(device)
+    # model_name = f"SpectralResE2D1_z_dim_{z_dim/2}" 
+    model_name = model.get_model_name() 
+    model_path=f"{BASE_PATH}/models/{model_name}/model_epoch_{epoch_no}.pth"
     checkpoint = torch.load(model_path, map_location=device)
     model.load_state_dict(checkpoint['model_state_dict'])
     model.eval()  # Set model to evaluation mode
@@ -186,10 +212,10 @@ def test_spectral_ae(batch_size=8, device=0, model_path="/home/ahmed/Task-Aware-
 
             # Forward pass
             decoded, mse_loss, nuc_loss, _, cos_loss, spec_loss, spec_loss_dict, spec_snr,psnr_obs, psnr_clean, dim_info = model(
-                # noisy_audio_1, 
-                # noisy_audio_2, 
+                noisy_audio_1, 
+                noisy_audio_2, 
                 # noisy_audio_3, 
-                noisy_audio_4, 
+                # noisy_audio_4, 
                 clean_audio,
                 True
             )
@@ -270,7 +296,7 @@ def test_spectral_ae(batch_size=8, device=0, model_path="/home/ahmed/Task-Aware-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train Spectral Auto-Encoder")
     parser.add_argument("-n", "--num_epochs", type=int, default=100)
-    parser.add_argument("-z", "--z_dim", type=int, default=128)
+    parser.add_argument("-z", "--z_dim", type=int, default=256)
     parser.add_argument("-l", "--lr", type=float, default=2e-4)
     parser.add_argument("-bs", "--batch_size", type=int, default=16)
     parser.add_argument("-r", "--beta_rec", type=float, default=0.1)
@@ -279,6 +305,7 @@ if __name__ == "__main__":
     parser.add_argument("-s", "--seed", type=int, default=0)
     parser.add_argument("-d", "--device", type=int, default=0)
     parser.add_argument("-p", "--randpca", type=bool, default=False)
+    parser.add_argument("-tf", "--total_feature_after", type=int, default=128)
     
     args = parser.parse_args()
-    test_spectral_ae(model_path="./models/SpecResE1D1_z_dim_128/model_epoch_100.pth")
+    test_spectral_ae(z_dim=args.z_dim, total_feature_after =args.total_feature_after , epoch_no=5)

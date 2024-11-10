@@ -2,6 +2,29 @@ import torch
 import numpy as np
 import torch.nn as nn
 from collections import defaultdict, OrderedDict
+from sklearn.decomposition import PCA
+
+
+import torch.nn as nn
+import torch.nn.functional as F
+from torchvision.models import resnet18
+
+class ResNetEncoder(nn.Module):
+    def __init__(self, input_channels=2, output_size=128):
+        super(ResNetEncoder, self).__init__()
+        
+        # Load a pre-trained ResNet18 model
+        self.resnet = resnet18(pretrained=True)
+        
+        # Modify the first conv layer to accept the input channels
+        self.resnet.conv1 = nn.Conv2d(input_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        
+        # Replace the final linear layer to output the desired size
+        self.resnet.fc = nn.Linear(self.resnet.fc.in_features, output_size)
+    
+    def forward(self, x):
+        x = self.resnet(x)
+        return x, None
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
@@ -196,10 +219,38 @@ class SpectralDecoder(nn.Module):
         
         return x
 
+# Assuming `data_pca` is a function that applies PCA and returns the transformed data
+def apply_pca(z, dim_p):
+    s, v, mu = data_pca(z)
+    z_p = torch.matmul(z - mu, v[:, :dim_p])
+    z_new = torch.matmul(z_p, v[:, :dim_p].T) + mu
+    return z_new
 
 
+
+def apply_pca_and_concatenate(z1, z2, n_components=64):
+    """
+    Apply PCA on the concatenated features from two encoders and return the reduced features.
+    
+    Parameters:
+    z1 (torch.Tensor): Encoded features from the first encoder, shape (batch_size, num_features_1)
+    z2 (torch.Tensor): Encoded features from the second encoder, shape (batch_size, num_features_2)
+    n_components (int): Number of principal components to retain
+    
+    Returns:
+    torch.Tensor: Concatenated and reduced features, shape (batch_size, n_components)
+    """
+    # Concatenate the features from the two encoders
+    z_concatenated = torch.cat([z1, z2], dim=1)
+    
+    # Apply PCA on the concatenated features
+    pca = PCA(n_components=n_components)
+    z_reduced = pca.fit_transform(z_concatenated.detach().cpu().numpy())
+    z_reduced = torch.from_numpy(z_reduced).to(z1.device)
+    
+    return z_reduced
 class SpectralResE2D1(nn.Module):
-    def __init__(self, z_dim1: int, z_dim2: int, n_res_blocks: int=3):
+    def __init__(self, z_dim1: int, z_dim2: int, n_res_blocks: int=3, total_features_after = 128):
         super().__init__()
         
         # Define input shapes based on your data
@@ -207,16 +258,24 @@ class SpectralResE2D1(nn.Module):
         self.time_dim = 600
         self.in_channels = 2  # magnitude, phase, db_scale
         
+        # self.total_features_after = z_dim1 + z_dim2
+        self.total_features_after = total_features_after
         self.enc1 = SpectralEncoder(self.in_channels, self.freq_dim, self.time_dim, z_dim1, n_res_blocks)
         self.enc2 = SpectralEncoder(self.in_channels, self.freq_dim, self.time_dim, z_dim2, n_res_blocks)
-        self.dec = SpectralDecoder(self.in_channels*2, self.freq_dim, self.time_dim, z_dim1 + z_dim2, n_res_blocks)
+        # self.enc1 = ResNetEncoder(input_channels=self.in_channels)
+        # self.enc2 = ResNetEncoder(input_channels=self.in_channels)
+        self.dec = SpectralDecoder(self.in_channels*2, self.freq_dim, self.time_dim, self.total_features_after, n_res_blocks)
         
         self.dimension_info = {}
+    def get_model_name(self):
+        return f"SpectralResE2D1_{int(self.total_features_after)}"
     def get_dim_info(self):
         return  ["before_z1","before_z2","after_z1","after_z2"]
 
     def forward(self, obs1, obs2, clean_data=None, random_bottle_neck=True):
         # Process input data - stack magnitude, phase, and db_scale
+        # obs1_stacked = obs1['magnitude'].unsqueeze(1)
+        # obs2_stacked = obs2['magnitude'].unsqueeze(1)
         obs1_stacked = torch.stack([
             obs1['magnitude'],
             obs1['phase'],
@@ -240,33 +299,96 @@ class SpectralResE2D1(nn.Module):
         batch_size = z1.shape[0]
         num_features = z1.shape[1] + z2.shape[1]
 
-        if random_bottle_neck:
-            dim_p = torch.randint(int(num_features/2)-3, int(num_features/2), (1,)).item()
-            # dim_p = int(num_features/2)
-            # print(dim_p, num_features)
-            s_1, v_1, mu_1 = data_pca(z1)
-            s_2, v_2, mu_2 = data_pca(z2)
+        # -----------------------------------------------------
+        # # # print(z1.shape, z2.shape)
+        # if random_bottle_neck:
+        #     # dim_p = torch.randint(int(num_features/2)-3, int(num_features/2), (1,)).item()
+        #     dim_p = int(num_features/2)
+        #     # dim_p = num_features
+        #     # print(dim_p)
+        #     print(dim_p, num_features)
+        #     print(z1.shape)
+        #     s_1, v_1, mu_1 = data_pca(z1)
+        #     s_2, v_2, mu_2 = data_pca(z2)
+        #     s_1_2 = torch.cat((s_1, s_2), 0)
+        #     ind = torch.argsort(s_1_2, descending=True)
+        #     ind = ind[:dim_p]
+        #     ind_1 = ind[ind < s_1.shape[0]]
+        #     ind_2 = ind[ind >= s_1.shape[0]] - s_1.shape[0]
+        #     z1_p = torch.matmul(z1 - mu_1, v_1[:,ind_1])
+        #     z2_p = torch.matmul(z2 - mu_2, v_2[:,ind_2])
+        #     print(s_1.shape, v_2.shape, mu_1.shape)
+        #     print(ind_1)
+        #     print(ind_2)
+        #     # print(z2.shape, mu_2.shape, v_2.shape)
             
-            s_1_2 = torch.cat((s_1, s_2), 0)
-            ind = torch.argsort(s_1_2, descending=True)
-            ind = ind[:dim_p]
-            ind_1 = ind[ind < s_1.shape[0]]
-            ind_2 = ind[ind >= s_1.shape[0]] - s_1.shape[0]
+        #     self.dimension_info = {
+        #         "before_z1": z1.shape[1],
+        #         "before_z2": z2.shape[1],
+        #         "after_z1": z1_p.shape[1],
+        #         "after_z2": z2_p.shape[1]
+        #     }
             
-            z1_p = torch.matmul(z1 - mu_1, v_1[:,ind_1])
-            z2_p = torch.matmul(z2 - mu_2, v_2[:,ind_2])
-            # print(z1.shape,z2.shape,z1_p.shape,z2_p.shape)
-            self.dimension_info = {
-                "before_z1": z1.shape[1],
-                "before_z2": z2.shape[1],
-                "after_z1": z1_p.shape[1],
-                "after_z2": z2_p.shape[1]
-            }
-            
-            z1 = torch.matmul(z1_p, v_1[:,ind_1].T) + mu_1
-            z2 = torch.matmul(z2_p, v_2[:,ind_2].T) + mu_2
-            z_sample = torch.cat((z1, z2), dim=1)
+        #     z1 = torch.matmul(z1_p, v_1[:,ind_1].T) + mu_1
+        #     z2 = torch.matmul(z2_p, v_2[:,ind_2].T) + mu_2
+        #     z_sample = torch.cat((z1, z2), dim=1)
+        # -----------------------------------------------------
+                # Split latent representations into private and shared components
+        batch_size = z1.shape[0]
+        num_features = z1.shape[1] // 2
         
+        z1_private = z1[:, :num_features]
+        z1_share = z1[:, num_features:]
+        z2_private = z2[:, :num_features]
+        z2_share = z2[:, num_features:]
+        
+        # Random bottleneck mixing of shared components if specified
+        if random_bottle_neck:
+            alpha = torch.rand(batch_size, 1, device=z1.device)
+            z_share_mixed = alpha * z1_share + (1 - alpha) * z2_share
+            z1_share = z2_share = z_share_mixed
+        
+        # Concatenate for decoding
+        z1_private, z1_share, z2_private, z2_share = z1_private[ :, : int(self.total_features_after/4)], z1_share[ :, : int(self.total_features_after/4)], z2_private[ :, : int(self.total_features_after/4)], z2_share[ :, : int(self.total_features_after/4)]
+        z1_sample = torch.cat((z1_private, z1_share), dim=1)
+        z2_sample = torch.cat((z2_private, z2_share), dim=1)
+        # print(z1_private.shape, z1_share.shape,z1_sample.shape,z_sample.shape  )
+        z_sample = torch.cat((z1_sample, z2_sample), dim=1)
+        self.dimension_info = {
+            "before_z1": z1.shape[1],
+            "before_z2": z2.shape[1],
+            "after_z1": z1_sample.shape[1],
+            "after_z2": z2_sample.shape[1]
+        }
+        # -----------------------------------------------------
+        # # Convert z1 and z2 to numpy for PCA
+        # z1_np = z1.detach().cpu().numpy()
+        # z2_np = z2.detach().cpu().numpy()
+        # # Initialize PCA to reduce dimensionality (adjust `n_components` as needed)
+        # pca = PCA(n_components=64)  # e.g., reduce each 128-dim vector to 64-dim
+
+        # # Fit and transform z1 and z2
+        # z1_reduced = pca.fit_transform(z1_np)
+        # z2_reduced = pca.fit_transform(z2_np)
+
+        # # Convert back to torch tensors
+        # z1_reduced = torch.tensor(z1_reduced, device=z1.device)
+        # z2_reduced = torch.tensor(z2_reduced, device=z2.device)
+        # self.dimension_info = {
+        #     "before_z1": z1.shape[1],
+        #     "before_z2": z2.shape[1],
+        #     "after_z1": z1_reduced.shape[1],
+        #     "after_z2": z2_reduced.shape[1]
+        # }
+        # # Concatenate reduced features
+        # z_sample = torch.cat((z1_reduced, z2_reduced), dim=1)  # Resulting shape should be (4, 128)
+        # -----------------------------------------------------
+
+
+    
+
+
+        # Concatenate for decoding
         cos_sim = torch.nn.CosineSimilarity()
         cos_loss = torch.mean(cos_sim(z1, z2))
         
@@ -298,8 +420,9 @@ class SpectralResE2D1(nn.Module):
         total_spec_loss = spec_loss["total_loss"]
         spec_loss1 = spec_loss
         total_spec_snr = spec_snr
+        
         psnr_obs = 10 * torch.log10(torch.max(obs1['magnitude']).item() / total_mse)
-        psnr_clean = 10 * torch.log10(torch.max(obs1['magnitude']).item() / total_mse)
+        psnr_clean = 10 * torch.log10(torch.max(obs2['magnitude']).item() / total_mse)
 
         return obs_dec, total_mse, total_nuc_loss, cross_recon_loss, cos_loss, total_spec_loss, spec_loss1, total_spec_snr, psnr_obs, psnr_clean, self.dimension_info
 
@@ -444,13 +567,14 @@ class SpectralResE2D1(nn.Module):
 
 
 class SpectralResE4D1(nn.Module):
-    def __init__(self, z_dim1: int, z_dim2: int, z_dim3: int, z_dim4: int, n_res_blocks: int=3,random_bottle_neck=True):
+    def __init__(self, z_dim1: int, z_dim2: int, z_dim3: int, z_dim4: int, n_res_blocks: int=3,random_bottle_neck=True, total_features_after = 128):
         super().__init__()
         # Define input shapes based on spectral data
         self.freq_dim = 1025
         self.time_dim = 600
         self.in_channels = 2  # magnitude, phase
-
+        self.total_features_after = total_features_after
+        # self.total_features_after = z_dim1 + z_dim2 + z_dim3 + z_dim4
         # Initialize spectral encoders for each input
         self.enc1 = SpectralEncoder(self.in_channels, self.freq_dim, self.time_dim, z_dim1, n_res_blocks)
         self.enc2 = SpectralEncoder(self.in_channels, self.freq_dim, self.time_dim, z_dim2, n_res_blocks)
@@ -462,11 +586,13 @@ class SpectralResE4D1(nn.Module):
             self.in_channels,
             self.freq_dim * 2,  # Doubled frequency dimension for concatenated data
             self.time_dim * 2,  # Doubled time dimension for concatenated data
-            z_dim1 + z_dim2 + z_dim3 + z_dim4,
+            self.total_features_after,
             n_res_blocks
         )
         
         self.dimension_info = {}
+    def get_model_name(self):
+        return f"SpectralResE4D1_{int(self.total_features_after)}"
     def get_dim_info(self):
         return  ["before_z1","before_z2","before_z3","before_z4","after_z1","after_z2","after_z3","after_z4"]
 
@@ -506,60 +632,136 @@ class SpectralResE4D1(nn.Module):
         batch_size = z1.shape[0]
         num_features = z1.shape[1] + z2.shape[1] + z3.shape[1] + z4.shape[1]
 
+        # -------------------------------------------------------
+        # if random_bottle_neck:
+        #     dim_p = torch.randint(8, int(num_features/2), (1,)).item()
+            
+        #     # Perform PCA on each latent representation
+        #     s_1, v_1, mu_1 = data_pca(z1)
+        #     s_2, v_2, mu_2 = data_pca(z2)
+        #     s_3, v_3, mu_3 = data_pca(z3)
+        #     s_4, v_4, mu_4 = data_pca(z4)
+            
+        #     # Combine singular values and sort
+        #     s_1_2_3_4 = torch.cat((s_1, s_2, s_3, s_4), 0)
+        #     ind = torch.argsort(s_1_2_3_4, descending=True)
+        #     ind = ind[:dim_p]
+            
+        #     # Split indices for each latent space
+        #     ind_1 = ind[ind < s_1.shape[0]]
+        #     ind_2 = ind[torch.logical_and(ind >= s_1.shape[0], ind < (s_1.shape[0] + s_2.shape[0]))] - s_1.shape[0]
+        #     ind_3 = ind[torch.logical_and(ind >= (s_1.shape[0] + s_2.shape[0]), 
+        #                                 ind < (s_1.shape[0] + s_2.shape[0] + s_3.shape[0]))] - (s_1.shape[0] + s_2.shape[0])
+        #     ind_4 = ind[ind >= (s_1.shape[0] + s_2.shape[0] + s_3.shape[0])] - (s_1.shape[0] + s_2.shape[0] + s_3.shape[0])
+            
+        #     # Project to reduced dimension
+        #     z1_p = torch.matmul(z1 - mu_1, v_1[:,ind_1])
+        #     z2_p = torch.matmul(z2 - mu_2, v_2[:,ind_2])
+        #     z3_p = torch.matmul(z3 - mu_3, v_3[:,ind_3])
+        #     z4_p = torch.matmul(z4 - mu_4, v_4[:,ind_4])
+            
+        #     # Store dimension information
+        #     self.dimension_info = {
+        #         "before_z1": z1.shape[1],
+        #         "before_z2": z2.shape[1],
+        #         "before_z3": z3.shape[1],
+        #         "before_z4": z4.shape[1],
+        #         "after_z1": z1_p.shape[1],
+        #         "after_z2": z2_p.shape[1],
+        #         "after_z3": z3_p.shape[1],
+        #         "after_z4": z4_p.shape[1],
+        #     }
+            
+        #     # Project back to original space
+        #     z1 = torch.matmul(z1_p, v_1[:,ind_1].T) + mu_1
+        #     z2 = torch.matmul(z2_p, v_2[:,ind_2].T) + mu_2
+        #     z3 = torch.matmul(z3_p, v_3[:,ind_3].T) + mu_3
+        #     z4 = torch.matmul(z4_p, v_4[:,ind_4].T) + mu_4
+
+        # # Calculate cosine similarity between all pairs
+        # cos_sim = torch.nn.CosineSimilarity()
+        # cos_loss = torch.mean(cos_sim(z1, z2) + cos_sim(z1, z3) + cos_sim(z1, z4) + 
+        #                     cos_sim(z2, z3) + cos_sim(z2, z4) + cos_sim(z3, z4))
+        
+        # # Concatenate latent vectors
+        # z_sample = torch.cat((z1, z2, z3, z4), dim=1)
+        
+        # -------------------------------------------------------
+        # Decode
+        # Split each encoder output into private and shared components
+        z1_private, z1_share = z1[:, :num_features], z1[:, num_features:]
+        z2_private, z2_share = z2[:, :num_features], z2[:, num_features:]
+        z3_private, z3_share = z3[:, :num_features], z3[:, num_features:]
+        z4_private, z4_share = z4[:, :num_features], z4[:, num_features:]
         if random_bottle_neck:
-            dim_p = torch.randint(8, int(num_features/2), (1,)).item()
-            
-            # Perform PCA on each latent representation
-            s_1, v_1, mu_1 = data_pca(z1)
-            s_2, v_2, mu_2 = data_pca(z2)
-            s_3, v_3, mu_3 = data_pca(z3)
-            s_4, v_4, mu_4 = data_pca(z4)
-            
-            # Combine singular values and sort
-            s_1_2_3_4 = torch.cat((s_1, s_2, s_3, s_4), 0)
-            ind = torch.argsort(s_1_2_3_4, descending=True)
-            ind = ind[:dim_p]
-            
-            # Split indices for each latent space
-            ind_1 = ind[ind < s_1.shape[0]]
-            ind_2 = ind[torch.logical_and(ind >= s_1.shape[0], ind < (s_1.shape[0] + s_2.shape[0]))] - s_1.shape[0]
-            ind_3 = ind[torch.logical_and(ind >= (s_1.shape[0] + s_2.shape[0]), 
-                                        ind < (s_1.shape[0] + s_2.shape[0] + s_3.shape[0]))] - (s_1.shape[0] + s_2.shape[0])
-            ind_4 = ind[ind >= (s_1.shape[0] + s_2.shape[0] + s_3.shape[0])] - (s_1.shape[0] + s_2.shape[0] + s_3.shape[0])
-            
-            # Project to reduced dimension
-            z1_p = torch.matmul(z1 - mu_1, v_1[:,ind_1])
-            z2_p = torch.matmul(z2 - mu_2, v_2[:,ind_2])
-            z3_p = torch.matmul(z3 - mu_3, v_3[:,ind_3])
-            z4_p = torch.matmul(z4 - mu_4, v_4[:,ind_4])
-            
-            # Store dimension information
-            self.dimension_info = {
-                "before_z1": z1.shape[1],
-                "before_z2": z2.shape[1],
-                "before_z3": z3.shape[1],
-                "before_z4": z4.shape[1],
-                "after_z1": z1_p.shape[1],
-                "after_z2": z2_p.shape[1],
-                "after_z3": z3_p.shape[1],
-                "after_z4": z4_p.shape[1],
-            }
-            
-            # Project back to original space
-            z1 = torch.matmul(z1_p, v_1[:,ind_1].T) + mu_1
-            z2 = torch.matmul(z2_p, v_2[:,ind_2].T) + mu_2
-            z3 = torch.matmul(z3_p, v_3[:,ind_3].T) + mu_3
-            z4 = torch.matmul(z4_p, v_4[:,ind_4].T) + mu_4
+            alpha1 = torch.rand(batch_size, 1, device=z1.device)
+            alpha2 = torch.rand(batch_size, 1, device=z1.device)
+            z_share_mixed1 = alpha1 * z1_share + (1 - alpha1) * z2_share
+            z_share_mixed2 = alpha2 * z3_share + (1 - alpha2) * z4_share
+            z1_share = z2_share = z_share_mixed1
+            z3_share = z4_share = z_share_mixed2
+
+        # Truncate each component to match the specified feature count after reduction
+        trunc_dim = int(self.total_features_after / 4)  # Adjust this if needed
+        z1_private, z1_share = z1_private[:, :trunc_dim], z1_share[:, :trunc_dim]
+        z2_private, z2_share = z2_private[:, :trunc_dim], z2_share[:, :trunc_dim]
+        z3_private, z3_share = z3_private[:, :trunc_dim], z3_share[:, :trunc_dim]
+        z4_private, z4_share = z4_private[:, :trunc_dim], z4_share[:, :trunc_dim]
+
+        # Concatenate private and shared parts for each encoder
+        z1_sample = torch.cat((z1_private, z1_share), dim=1)
+        z2_sample = torch.cat((z2_private, z2_share), dim=1)
+        z3_sample = torch.cat((z3_private, z3_share), dim=1)
+        z4_sample = torch.cat((z4_private, z4_share), dim=1)
+
+        # Concatenate all samples from the four encoders for the decoder
+        z_sample = torch.cat((z1_sample, z2_sample, z3_sample, z4_sample), dim=1)
+        # print(z_sample.shape)
+        # Store dimension information
+        self.dimension_info = {
+            "before_z1": z1.shape[1],
+            "before_z2": z2.shape[1],
+            "before_z3": z3.shape[1],
+            "before_z4": z4.shape[1],
+            "after_z1": z1_sample.shape[1],
+            "after_z2": z2_sample.shape[1],
+            "after_z3": z3_sample.shape[1],
+            "after_z4": z4_sample.shape[1]
+        }
+
+        # batch_size = z1.shape[0]
+        # num_features = z1.shape[1] // 2
+        
+        # z1_private = z1[:, :num_features]
+        # z1_share = z1[:, num_features:]
+        # z2_private = z2[:, :num_features]
+        # z2_share = z2[:, num_features:]
+        
+        # # Random bottleneck mixing of shared components if specified
+        # if random_bottle_neck:
+        #     alpha = torch.rand(batch_size, 1, device=z1.device)
+        #     z_share_mixed = alpha * z1_share + (1 - alpha) * z2_share
+        #     z1_share = z2_share = z_share_mixed
+        
+        # # Concatenate for decoding
+        # z1_private, z1_share, z2_private, z2_share = z1_private[ :, : int(self.total_features_after/4)], z1_share[ :, : int(self.total_features_after/4)], z2_private[ :, : int(self.total_features_after/4)], z2_share[ :, : int(self.total_features_after/4)]
+        # z1_sample = torch.cat((z1_private, z1_share), dim=1)
+        # z2_sample = torch.cat((z2_private, z2_share), dim=1)
+        # # print(z1_private.shape, z1_share.shape,z1_sample.shape,z_sample.shape  )
+        # z_sample = torch.cat((z1_sample, z2_sample), dim=1)
+        # self.dimension_info = {
+        #     "before_z1": z1.shape[1],
+        #     "before_z2": z2.shape[1],
+        #     "after_z1": z1_sample.shape[1],
+        #     "after_z2": z2_sample.shape[1]
+        # }
+
 
         # Calculate cosine similarity between all pairs
         cos_sim = torch.nn.CosineSimilarity()
         cos_loss = torch.mean(cos_sim(z1, z2) + cos_sim(z1, z3) + cos_sim(z1, z4) + 
                             cos_sim(z2, z3) + cos_sim(z2, z4) + cos_sim(z3, z4))
-        
-        # Concatenate latent vectors
-        z_sample = torch.cat((z1, z2, z3, z4), dim=1)
-        
-        # Decode
+
         obs_dec = self.dec(z_sample)
         
         # Calculate losses
@@ -577,6 +779,7 @@ class SpectralResE4D1(nn.Module):
         spec_loss = {
             "magnitude_loss": torch.mean((obs[:, 0] - obs_dec[:, 0]) ** 2),
             "phase_loss": torch.mean((obs[:, 1] - obs_dec[:, 1]) ** 2),
+            # "phase_loss": torch.tensor(0),
             "total_loss": torch.mean((obs - obs_dec) ** 2)
         }
         
@@ -588,24 +791,27 @@ class SpectralResE4D1(nn.Module):
         spec_loss1 = spec_loss
         total_spec_snr = spec_snr
         psnr_obs = 10 * torch.log10(torch.max(obs1['magnitude']).item() / total_mse)
-        psnr_clean = 10 * torch.log10(torch.max(obs1['magnitude']).item() / total_mse)
+        psnr_clean = 10 * torch.log10(torch.max(obs2['magnitude']).item() / total_mse)
 
         return obs_dec, total_mse, total_nuc_loss, cross_recon_loss, cos_loss, total_spec_loss, spec_loss1, total_spec_snr, psnr_obs, psnr_clean, self.dimension_info
 
 class SpectralResE1D1(nn.Module):
-    def __init__(self, z_dim: int, n_res_blocks: int=3):
+    def __init__(self, z_dim: int, n_res_blocks: int=3, total_features_after = 128):
         super().__init__()
         # Define input shapes based on spectral data
         self.freq_dim = 1025
         self.time_dim = 600
         self.in_channels = 2  # magnitude, phase
-        
+        # self.total_features_after = z_dim
+        self.total_features_after = total_features_after
         # Initialize spectral encoder and decoder
         self.enc = SpectralEncoder(self.in_channels, self.freq_dim, self.time_dim, z_dim, n_res_blocks)
-        self.dec = SpectralDecoder(self.in_channels, self.freq_dim, self.time_dim, z_dim, n_res_blocks)
+        self.dec = SpectralDecoder(self.in_channels, self.freq_dim, self.time_dim, self.total_features_after, n_res_blocks)
         
         self.dimension_info = {}
 
+    def get_model_name(self):
+        return f"SpectralResE1D1_{int(self.total_features_after)}"
     def get_dim_info(self):
         return  ["before_z1","after_z1"]
     def forward(self, obs, clean, random_bottle_neck):
@@ -616,19 +822,30 @@ class SpectralResE1D1(nn.Module):
             obs['phase'],
         ], dim=1).float()  # Shape: (batch, 2, 1025, 600)
         # print())
-        print(obs['magnitude'].shape, obs['phase'].shape, obs_stacked.shape)
+        # print(obs['magnitude'].shape, obs['phase'].shape, obs_stacked.shape)
 
         # Encode input
         z1, _ = self.enc(obs_stacked)
-        
-        # Split latent representation into private and shared components
+        # Calculate variance across the batch dimension for each feature
+        # Calculate variance across the batch dimension (dim=0) for each feature
+        variances = z1.var(dim=0)
+        # print(variances.shape)
+        # Get indices of the top n features with the highest variance
+        top_n_indices = torch.topk(variances, int(self.total_features_after)).indices  # topk returns values and indices; we need only indices
+
+        # Select the top n features based on variance
+        z_sample = z1[:, top_n_indices]
         num_features = z1.shape[1] // 2
         batch_size = z1.shape[0]
-        z1_private = z1[:, :num_features]
-        z1_share = z1[:, num_features:]
+        # Split latent representation into private and shared components
+        # num_features = z1.shape[1] // 2
+        # batch_size = z1.shape[0]
+        # z1_private = z1[:, :num_features]
+        # z1_share = z1[:, num_features:]
         
         # Concatenate for decoding
-        z_sample = torch.cat((z1_private, z1_share), dim=1)
+        # z_sample = torch.cat((z1_private, z1_share), dim=1)
+        
         
         # Decode
         obs_dec = self.dec(z_sample)
@@ -655,7 +872,7 @@ class SpectralResE1D1(nn.Module):
         # Store dimension information
         self.dimension_info = {
             "before_z1": z1.shape[1],
-            "after_z2": num_features
+            "after_z2": z_sample.shape[1]
         }
         psnr_obs = 10 * torch.log10(torch.max(obs["magnitude"]).item() / torch.mean(mse))
         psnr_clean = 10 * torch.log10(torch.max(obs["magnitude"]).item() / torch.mean(mse))
@@ -774,23 +991,26 @@ class SpectralResE1D1(nn.Module):
 
 
 class SpectralResE2D2(nn.Module):
-    def __init__(self, z_dim1: int, z_dim2: int, n_res_blocks: int = 3):
+    def __init__(self, z_dim1: int, z_dim2: int, n_res_blocks: int = 3, total_features_after = 256):
         super().__init__()
         # Define input shapes based on spectral data
         self.freq_dim = 1025
         self.time_dim = 600
         self.in_channels = 2  # magnitude, phase
-        
+        self.total_features_after = total_features_after 
         # Initialize spectral encoders and decoders for both branches
         self.enc1 = SpectralEncoder(self.in_channels, self.freq_dim, self.time_dim, z_dim1, n_res_blocks)
         self.enc2 = SpectralEncoder(self.in_channels, self.freq_dim, self.time_dim, z_dim2, n_res_blocks)
-        self.dec1 = SpectralDecoder(self.in_channels, self.freq_dim, self.time_dim, z_dim1, n_res_blocks)
-        self.dec2 = SpectralDecoder(self.in_channels, self.freq_dim, self.time_dim, z_dim2, n_res_blocks)
+        self.dec1 = SpectralDecoder(self.in_channels, self.freq_dim, self.time_dim, int(self.total_features_after/2), n_res_blocks)
+        self.dec2 = SpectralDecoder(self.in_channels, self.freq_dim, self.time_dim, int(self.total_features_after/2), n_res_blocks)
         
         self.dimension_info = {}
 
     def get_dim_info(self):
         return ["before_z1", "before_z2", "after_z1", "after_z2"]
+    
+    def get_model_name(self):
+        return f"SpectralResE2D2_{int(self.total_features_after)}"
 
     def forward(self, obs1, obs2, clean, random_bottle_neck):
         # Process input data - stack magnitude and phase for both branches
@@ -823,6 +1043,8 @@ class SpectralResE2D2(nn.Module):
             z_share_mixed = alpha * z1_share + (1 - alpha) * z2_share
             z1_share = z2_share = z_share_mixed
         
+        z1_private, z1_share, z2_private, z2_share = z1_private[ :, : int(self.total_features_after/4)], z1_share[ :, : int(self.total_features_after/4)], z2_private[ :, : int(self.total_features_after/4)], z2_share[ :, : int(self.total_features_after/4)]
+
         # Concatenate for decoding
         z1_sample = torch.cat((z1_private, z1_share), dim=1)
         z2_sample = torch.cat((z2_private, z2_share), dim=1)
@@ -874,8 +1096,8 @@ class SpectralResE2D2(nn.Module):
         self.dimension_info = {
             "before_z1": z1.shape[1],
             "before_z2": z2.shape[1],
-            "after_z1": num_features,
-            "after_z2": num_features
+            "after_z1": z1_sample.shape[1],
+            "after_z2": z2_sample.shape[1]
         }
         
         # Calculate total losses
