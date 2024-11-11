@@ -4,6 +4,7 @@ import numpy as np
 import pickle
 import librosa
 import os
+from speechbrain.pretrained import SpectralMaskEnhancement
 from tempfile import TemporaryDirectory
 from pathlib import Path
 from torch.utils.tensorboard import SummaryWriter
@@ -170,6 +171,42 @@ def seed_worker(worker_id):
 #     return y_reconstructed
 
 
+def batch_reconstruct_waveform(magnitude_batch, phase_batch, sample_rate, n_fft=2048, hop_length=512, win_length=2048, window='hann'):
+    """
+    Reconstruct waveforms from batched magnitude and phase using ISTFT in PyTorch.
+    """
+    # Check if the batch dimensions of magnitude and phase match
+    if magnitude_batch.shape != phase_batch.shape:
+        raise ValueError("The shapes of magnitude and phase must match for batched processing.")
+    
+    batch_size = magnitude_batch.shape[0]  # Assuming shape is (batch_size, freq_bins, time_steps)
+    
+    # Combine magnitude and phase into a complex spectrogram for the entire batch
+    complex_spectrogram_batch = magnitude_batch * torch.exp(1j * phase_batch)  # Shape: (batch_size, freq_bins, time_steps)
+
+    # Create the window tensor based on the window type
+    if window == 'hann':
+        window_tensor = torch.hann_window(win_length).to(device="cuda:0")
+    else:
+        raise ValueError(f"Window type '{window}' is not supported. Use 'hann'.")
+
+    # Perform inverse STFT on each item in the batch
+    # Use list comprehension to apply torch.istft on each batch element
+    reconstructed_waveforms = [
+        torch.istft(
+            complex_spectrogram_batch[i],
+            n_fft=n_fft,
+            hop_length=hop_length,
+            win_length=win_length,
+            window=window_tensor,
+            return_complex=False
+        )
+        for i in range(batch_size)
+    ]
+
+    # Stack reconstructed waveforms along the batch dimension and return
+    return torch.stack(reconstructed_waveforms, dim=0)  # Shape: (batch_size, time)
+
 def reconstruct_waveform(magnitude, phase, sample_rate, n_fft=2048, hop_length=512, win_length=2048, window='hann'):
     """
     Reconstruct waveform from magnitude and phase using ISTFT in PyTorch.
@@ -212,9 +249,18 @@ def save_waveform(y, sr, file_path):
     torchaudio.save(file_path, waveform_tensor, sample_rate=sr)
 
 
-speech_branin_model = separator.from_hparams(source="speechbrain/sepformer-wham-enhancement", savedir='pretrained_models/sepformer-wham-enhancement')
-for param in speech_branin_model.parameters():
-    param.requires_grad = False  # Freeze the model parameters
+from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
+# Load Wav2Vec2 model and processor
+processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-large-960h-lv60-self")
+model = Wav2Vec2ForCTC.from_pretrained("facebook/wav2vec2-large-960h-lv60-self")
+model.to("cuda:0")
+for param in model.parameters():
+    param.requires_grad = False  # Freeze parameters
+
+
+# speech_branin_model = separator.from_hparams(source="speechbrain/sepformer-wham-enhancement", savedir='pretrained_models/sepformer-wham-enhancement')
+# for param in speech_branin_model.parameters():
+#     param.requires_grad = False  # Freeze the model parameters
 
 
 def task_aware(noisy_audio_batch, clean_audio_batch):
@@ -230,76 +276,133 @@ def task_aware(noisy_audio_batch, clean_audio_batch):
     snr_loss_total = 0.0
 
     # Initialize SpeechBrain model for source separation
-    speech_brain_model = speech_branin_model  # Replace with your actual model loading
+    # speech_brain_model = speech_branin_model  # Replace with your actual model loading
 
-    for num_index in range(batch_size):
-        # Load and process the clean and noisy audio for the current batch index
-        # Process audio batch
-        clean_mag, clean_phase = clean_audio_batch["magnitude"][num_index], clean_audio_batch["phase"][num_index]
-        noisy_mag, noisy_phase = noisy_audio_batch[num_index][0], noisy_audio_batch[num_index][1]
+    # Load and process the clean and noisy audio for the entire batch
+    clean_mag, clean_phase = clean_audio_batch["magnitude"], clean_audio_batch["phase"]  # Shape: (batch_size, ...)
+    noisy_mag, noisy_phase = noisy_audio_batch[:, 0], noisy_audio_batch[:, 1]  # Shape: (batch_size, ...)
+    # print(clean_mag.shape)
+    # Reconstruct waveforms for the entire batch
+    reconstructed_clean_waveforms = batch_reconstruct_waveform(clean_mag, clean_phase, sample_rate)  # Shape: (batch_size, time)
+    reconstructed_noisy_waveforms = batch_reconstruct_waveform(noisy_mag, noisy_phase, sample_rate)  # Shape: (batch_size, time)
 
-        # Reconstruct waveforms
-        reconstructed_clean_waveform = reconstruct_waveform(clean_mag, clean_phase, sample_rate)
-        reconstructed_noisy_waveform = reconstruct_waveform(noisy_mag, noisy_phase, sample_rate)
-        # print(reconstructed_noisy_waveform.shape)
-        # Step 2: Use SpeechBrain's model to enhance the noisy audio
-        # est_sources = speech_branin_model.separate_file(path=None, wav=reconstructed_noisy_waveform)
-        est_sources = speech_branin_model.separate_batch(mix=reconstructed_noisy_waveform)
-        enhanced_audio = est_sources[:, :, 0].detach().cpu()  # First separated source as enhanced
+    # Process noisy waveforms through the model
+    inputs = processor(reconstructed_noisy_waveforms, sampling_rate=sample_rate, return_tensors="pt", padding=True)
+    inputs_values = inputs.input_values.squeeze()  # Shape: (batch_size, time)
+    inputs_values = inputs_values.to(device="cuda:0")
+
+    # Forward pass through the model
+    with torch.no_grad():
+        logits = model(inputs_values).logits  # Shape: (batch_size, time, classes)
+
+    # Obtain enhanced audio by taking the argmax over logits
+    enhanced_audio = torch.argmax(logits, dim=-1).to(device="cuda:0")  # Shape: (batch_size, time)
+
+    # Ensure enhanced audio and reconstructed clean waveforms have compatible lengths
+    min_length = min(reconstructed_clean_waveforms.shape[-1], enhanced_audio.shape[-1])
+    enhanced_audio = enhanced_audio[..., :min_length]
+    reconstructed_clean_waveforms = reconstructed_clean_waveforms[..., :min_length]
+
+    # Convert numpy arrays to PyTorch tensors if needed
+    if isinstance(reconstructed_clean_waveforms, np.ndarray):
+        reconstructed_clean_waveforms = torch.tensor(reconstructed_clean_waveforms)
+
+    if reconstructed_clean_waveforms.ndimension() == 2:  # Shape: (batch_size, time)
+        reconstructed_clean_waveforms = reconstructed_clean_waveforms.to(device="cuda:0")
+
+    # Step 3: Compute losses for the entire batch
+    mse_loss = F.mse_loss(enhanced_audio, reconstructed_clean_waveforms, reduction='mean')
+
+    # Optional: Compute additional metrics if required
+    # pesq_loss and snr_loss calculations can be added here if PESQ and SNR functions support batched input
+
+    # Output the average losses
+    avg_mse_loss_enc_clean = mse_loss.item()
+    # avg_pesq_loss and avg_snr_loss can be calculated if using PESQ and SNR metrics
+
+    return avg_mse_loss_enc_clean  # , avg_pesq_loss, avg_snr_loss if implemented
+    # for num_index in range(batch_size):
+    #     # Load and process the clean and noisy audio for the current batch index
+    #     # Process audio batch
+    #     clean_mag, clean_phase = clean_audio_batch["magnitude"][num_index], clean_audio_batch["phase"][num_index]
+    #     noisy_mag, noisy_phase = noisy_audio_batch[num_index][0], noisy_audio_batch[num_index][1]
+
+    #     # Reconstruct waveforms
+    #     reconstructed_clean_waveform = reconstruct_waveform(clean_mag, clean_phase, sample_rate)
+    #     reconstructed_noisy_waveform = reconstruct_waveform(noisy_mag, noisy_phase, sample_rate)
+    #     # print(reconstructed_noisy_waveform.shape)
+    #     # Step 2: Use SpeechBrain's model to enhance the noisy audio
+    #     # est_sources = speech_branin_model.separate_file(path=None, wav=reconstructed_noisy_waveform)
+    #     print("-----------------------")
+    #     # est_sources = speech_branin_model.separate_batch(mix=reconstructed_noisy_waveform)
+    #     # enhanced_audio = est_sources[:, :, 0].detach().cpu()  # First separated source as enhanced
+    #     # Enhance audio using the denoiser
+    #     # Process and pass through the model
+    #     inputs = processor(reconstructed_noisy_waveform, sampling_rate=sample_rate, return_tensors="pt", padding=True)
+    #     inputs_values = inputs.input_values.squeeze().unsqueeze(0)  # Remove any extra dimensions
+        
+    #     # print(inputs_values.shape)
+    #     with torch.no_grad():
+    #         logits = model(inputs_values).logits
+    #     # enhanced_audio = torch.argmax(logits, dim=-1).cpu()
+    #     enhanced_audio = torch.argmax(logits, dim=-1).to(device="cuda:0")
+    #     # enhanced_audio = torch.argmax(logits, dim=-1)
+
+    #     print("-----------------------")
 
         
-        # with TemporaryDirectory() as tempdir:
-        #     temp_clean_path = os.path.join(tempdir, f"reconstructed_clean_{num_index}.wav")
-        #     temp_noisy_path = os.path.join(tempdir, f"reconstructed_noisy_{num_index}.wav")
+    #     # with TemporaryDirectory() as tempdir:
+    #     #     temp_clean_path = os.path.join(tempdir, f"reconstructed_clean_{num_index}.wav")
+    #     #     temp_noisy_path = os.path.join(tempdir, f"reconstructed_noisy_{num_index}.wav")
             
-        #     # Reconstruct clean and noisy waveforms for the current sample
-        #     reconstructed_clean_waveform = reconstruct_waveform(clean_audio_batch["magnitude"][num_index], clean_audio_batch["phase"][num_index], sample_rate)
-        #     save_waveform(reconstructed_clean_waveform, sample_rate, temp_clean_path)
+    #     #     # Reconstruct clean and noisy waveforms for the current sample
+    #     #     reconstructed_clean_waveform = reconstruct_waveform(clean_audio_batch["magnitude"][num_index], clean_audio_batch["phase"][num_index], sample_rate)
+    #     #     save_waveform(reconstructed_clean_waveform, sample_rate, temp_clean_path)
 
-        #     reconstructed_noisy_waveform = reconstruct_waveform(noisy_audio_batch[num_index][0], noisy_audio_batch[num_index][1], sample_rate)
-        #     save_waveform(reconstructed_noisy_waveform, sample_rate, temp_noisy_path)
+    #     #     reconstructed_noisy_waveform = reconstruct_waveform(noisy_audio_batch[num_index][0], noisy_audio_batch[num_index][1], sample_rate)
+    #     #     save_waveform(reconstructed_noisy_waveform, sample_rate, temp_noisy_path)
 
-        #     # Step 2: Use SpeechBrain's model to enhance the noisy audio
-        #     est_sources = speech_brain_model.separate_file(path=temp_noisy_path)
-        #     enhanced_audio = est_sources[:, :, 0].detach().cpu()  # Take the first separated source as the enhanced audio
+    #     #     # Step 2: Use SpeechBrain's model to enhance the noisy audio
+    #     #     est_sources = speech_brain_model.separate_file(path=temp_noisy_path)
+    #     #     enhanced_audio = est_sources[:, :, 0].detach().cpu()  # Take the first separated source as the enhanced audio
 
-        # Ensure enhanced audio and reconstructed clean waveform have compatible lengths
-        min_length = min(reconstructed_clean_waveform.shape[-1], enhanced_audio.shape[-1])
-        enhanced_audio = enhanced_audio[..., :min_length]
-        reconstructed_clean_waveform = reconstructed_clean_waveform[..., :min_length]
+    #     # Ensure enhanced audio and reconstructed clean waveform have compatible lengths
+    #     min_length = min(reconstructed_clean_waveform.shape[-1], enhanced_audio.shape[-1])
+    #     enhanced_audio = enhanced_audio[..., :min_length]
+    #     reconstructed_clean_waveform = reconstructed_clean_waveform[..., :min_length]
 
-        # Convert numpy arrays to PyTorch tensors if needed
-        if isinstance(reconstructed_clean_waveform, np.ndarray):
-            reconstructed_clean_waveform = torch.tensor(reconstructed_clean_waveform)
+    #     # Convert numpy arrays to PyTorch tensors if needed
+    #     if isinstance(reconstructed_clean_waveform, np.ndarray):
+    #         reconstructed_clean_waveform = torch.tensor(reconstructed_clean_waveform)
 
-        if reconstructed_clean_waveform.ndimension() == 1:
-            reconstructed_clean_waveform = reconstructed_clean_waveform.unsqueeze(0)  # Add batch dimension
+    #     if reconstructed_clean_waveform.ndimension() == 1:
+    #         reconstructed_clean_waveform = reconstructed_clean_waveform.unsqueeze(0)  # Add batch dimension
 
-        # Step 3: Compute losses for the current batch entry
-        mse_loss = F.mse_loss(enhanced_audio, reconstructed_clean_waveform)
-        pesq_metric = PESQ(fs=sample_rate, mode='wb')
-        pesq_loss = pesq_metric(enhanced_audio, reconstructed_clean_waveform)
+    #     # Step 3: Compute losses for the current batch entry
+    #     mse_loss = F.mse_loss(enhanced_audio, reconstructed_clean_waveform)
+    #     # pesq_metric = PESQ(fs=sample_rate, mode='wb')
+    #     # pesq_loss = pesq_metric(enhanced_audio, reconstructed_clean_waveform)
 
-        snr_metric = SNR()
-        snr_loss = snr_metric(enhanced_audio, reconstructed_clean_waveform)
+    #     # snr_metric = SNR()
+    #     # snr_loss = snr_metric(enhanced_audio, reconstructed_clean_waveform)
 
-        # Add the current losses to the totals
-        mse_loss_total += mse_loss.item()
-        pesq_loss_total += pesq_loss.item()
-        snr_loss_total += snr_loss.item()
+    #     # Add the current losses to the totals
+    #     mse_loss_total += mse_loss.item()
+    #     # pesq_loss_total += pesq_loss.item()
+    #     # snr_loss_total += snr_loss.item()
 
-        # # Output the losses for the current batch entry
-        # print(f"Entry {num_index}:")
-        # print("MSE Loss:", mse_loss.item())
-        # print("Perceptual Loss (PESQ):", pesq_loss.item())
-        # print("SNR Loss:", snr_loss.item())
+    #     # # Output the losses for the current batch entry
+    #     # print(f"Entry {num_index}:")
+    #     # print("MSE Loss:", mse_loss.item())
+    #     # print("Perceptual Loss (PESQ):", pesq_loss.item())
+    #     # print("SNR Loss:", snr_loss.item())
     
-    # Step 4: Calculate the average losses over the whole batch
-    avg_mse_loss_enc_clean = mse_loss_total / batch_size
-    avg_pesq_loss = pesq_loss_total / batch_size
-    avg_snr_loss = snr_loss_total / batch_size
+    # # Step 4: Calculate the average losses over the whole batch
+    # avg_mse_loss_enc_clean = mse_loss_total / batch_size
+    # avg_pesq_loss = pesq_loss_total / batch_size
+    # avg_snr_loss = snr_loss_total / batch_size
     
-    return avg_mse_loss_enc_clean, avg_pesq_loss, avg_snr_loss
+    # return avg_mse_loss_enc_clean, avg_pesq_loss, avg_snr_loss
 # def task_aware(noisy_audio, clean_audio):
 #     # noisy_audio, clean_audio = noisy_audio[0], clean_audio.squeeze()
 #     # print(clean_audio)
@@ -444,6 +547,7 @@ def train_spectral_ae(batch_size=32, num_epochs=100, beta_kl=1.0, beta_rec=0.0,
         mag_losses, phase_losses, total_losses = [], [], []
         total_psnr_obs = []
         total_psnr_clean = []
+        total_denoised_mse_loss = []
         epoch_dim_info = defaultdict(list)  # Collect dynamic dim_info per epoch
         batch_idx = 0
         for batch_idx, data in enumerate(track(train_loader, description=f"Epoch {epoch+1}/{num_epochs}:   Batch {batch_idx}/{len(train_loader)} ")):
@@ -467,7 +571,7 @@ def train_spectral_ae(batch_size=32, num_epochs=100, beta_kl=1.0, beta_rec=0.0,
                 clean_audio,
                 True,
             )
-            task_aware(decoded, clean_audio)
+            denoised_mse_loss = task_aware(decoded, clean_audio)
             # Calculate total loss
             # loss = beta_rec * mse_loss 
             loss = (beta_rec * mse_loss + 
@@ -482,6 +586,7 @@ def train_spectral_ae(batch_size=32, num_epochs=100, beta_kl=1.0, beta_rec=0.0,
                     # Store losses for averaging
             epoch_losses.append(loss.item())
             mse_losses.append(mse_loss.item())
+            total_denoised_mse_loss.append(denoised_mse_loss)
             nuc_losses.append(nuc_loss.item())
             cos_losses.append(cos_loss.item())
             spec_losses.append(spec_loss.item())
@@ -513,6 +618,7 @@ def train_spectral_ae(batch_size=32, num_epochs=100, beta_kl=1.0, beta_rec=0.0,
         avg_spec_snr = np.mean(spec_snrs)
         avg_mag_loss = np.mean(mag_losses)
         avg_phase_loss = np.mean(phase_losses)
+        avg_denoised_mse_loss = np.mean(total_denoised_mse_loss)
         avg_total_loss = np.mean(total_losses) 
         avg_psnr_obs = np.mean(total_psnr_obs) 
         avg_psnr_clean = np.mean(total_psnr_clean) 
@@ -538,6 +644,7 @@ def train_spectral_ae(batch_size=32, num_epochs=100, beta_kl=1.0, beta_rec=0.0,
 
 
         print(f"\nEpoch {epoch+1} Average Loss: {avg_loss:.4f}")
+        print(f"\nEpoch {epoch+1} Average Denoised MSE Loss: {avg_denoised_mse_loss:.4f}")
         # Save model checkpoint
         if (epoch + 1) % 5 == 0:
             base_dir = f"./models/{model_name}"
@@ -555,7 +662,7 @@ if __name__ == "__main__":
     parser.add_argument("-n", "--num_epochs", type=int, default=100)
     parser.add_argument("-z", "--z_dim", type=int, default=256)
     parser.add_argument("-l", "--lr", type=float, default=2e-4)
-    parser.add_argument("-bs", "--batch_size", type=int, default=1)
+    parser.add_argument("-bs", "--batch_size", type=int, default=2)
     parser.add_argument("-r", "--beta_rec", type=float, default=1.0)
     parser.add_argument("-k", "--beta_kl", type=float, default=0.1)
     parser.add_argument("-w", "--weight_cross_penalty", type=float, default=0.1)
