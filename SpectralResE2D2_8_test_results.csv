@@ -1,2 +1,2 @@
-Epoch,Avg_MSE_Loss,Avg_Nuclear_Loss,Avg_Cosine_Loss,Avg_Spectral_Loss,Avg_Spectral_SNR,Avg_Magnitude_Loss,Avg_Phase_Loss,Avg_Total_Loss,psnr_obs,psnr_clean,after_z1,after_z2,before_z1,before_z2
+Avg_MSE_Loss,Avg_Nuclear_Loss,Avg_Cosine_Loss,Avg_Spectral_Loss,Avg_Spectral_SNR,Avg_Magnitude_Loss,Avg_Phase_Loss,Avg_Total_Loss,psnr_obs,psnr_clean,after_z1,after_z2,before_z1,before_z2
 1.2608827614784242,0.1693258249759674,0.0,1.2608827650547028,0.63815414711833,1.6294140589237214,0.6396507847309113,1.1345324194431305,48.50874374389648,47.56826202392578,4,4,128,128
