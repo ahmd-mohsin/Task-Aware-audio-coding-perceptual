@@ -94,9 +94,6 @@ class SpectralResBlock(nn.Module):
         out = self.relu(out)
         return out
 
-import torch
-import torch.nn as nn
-
 class SpectralResBlock(nn.Module):
     def __init__(self, channels):
         super().__init__()
