@@ -22,7 +22,7 @@ import torchaudio
 from torchmetrics.audio import PerceptualEvaluationSpeechQuality as PESQ
 from torchmetrics import SignalNoiseRatio as SNR
 from speechbrain.processing.features import STFT
-
+from msstftd import MultiScaleSTFTDiscriminator
 def normalize_tensor(tensor):
     min_val = tensor.min()
     max_val = tensor.max()
@@ -249,13 +249,17 @@ def save_waveform(y, sr, file_path):
     torchaudio.save(file_path, waveform_tensor, sample_rate=sr)
 
 
+SAMPLE_RATE = 8000  # Use the appropriate sample rate for your data
 from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
 # Load Wav2Vec2 model and processor
-processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-large-960h-lv60-self")
+processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-large-960h-lv60-self", sampling_rate = SAMPLE_RATE)
 model = Wav2Vec2ForCTC.from_pretrained("facebook/wav2vec2-large-960h-lv60-self")
 model.to("cuda:0")
 for param in model.parameters():
     param.requires_grad = False  # Freeze parameters
+
+disc = MultiScaleSTFTDiscriminator(filters=8)
+disc.to("cuda:0")
 
 
 # speech_branin_model = separator.from_hparams(source="speechbrain/sepformer-wham-enhancement", savedir='pretrained_models/sepformer-wham-enhancement')
@@ -265,7 +269,7 @@ for param in model.parameters():
 
 def task_aware(noisy_audio_batch, clean_audio_batch):
     # noisy_audio_batch and clean_audio_batch are assumed to be batches of data
-    sample_rate = 16000  # Use the appropriate sample rate for your data
+    # sample_rate = 16000  # Use the appropriate sample rate for your data
 
     # Ensure both noisy and clean batches are the same size
     batch_size = noisy_audio_batch.size(0)
@@ -283,11 +287,10 @@ def task_aware(noisy_audio_batch, clean_audio_batch):
     noisy_mag, noisy_phase = noisy_audio_batch[:, 0], noisy_audio_batch[:, 1]  # Shape: (batch_size, ...)
     # print(clean_mag.shape)
     # Reconstruct waveforms for the entire batch
-    reconstructed_clean_waveforms = batch_reconstruct_waveform(clean_mag, clean_phase, sample_rate)  # Shape: (batch_size, time)
-    reconstructed_noisy_waveforms = batch_reconstruct_waveform(noisy_mag, noisy_phase, sample_rate)  # Shape: (batch_size, time)
-
+    reconstructed_clean_waveforms = batch_reconstruct_waveform(clean_mag, clean_phase, SAMPLE_RATE)  # Shape: (batch_size, time)
+    reconstructed_noisy_waveforms = batch_reconstruct_waveform(noisy_mag, noisy_phase, SAMPLE_RATE)  # Shape: (batch_size, time)
     # Process noisy waveforms through the model
-    inputs = processor(reconstructed_noisy_waveforms, sampling_rate=sample_rate, return_tensors="pt", padding=True)
+    inputs = processor(reconstructed_noisy_waveforms, sampling_rate=SAMPLE_RATE, return_tensors="pt", padding=True)
     inputs_values = inputs.input_values.squeeze()  # Shape: (batch_size, time)
     inputs_values = inputs_values.to(device="cuda:0")
 
@@ -297,12 +300,26 @@ def task_aware(noisy_audio_batch, clean_audio_batch):
 
     # Obtain enhanced audio by taking the argmax over logits
     enhanced_audio = torch.argmax(logits, dim=-1).to(device="cuda:0")  # Shape: (batch_size, time)
+    # print(reconstructed_clean_waveforms.shape, reconstructed_noisy_waveforms.shape, enhanced_audio.shape, logits.shape)
 
     # Ensure enhanced audio and reconstructed clean waveforms have compatible lengths
-    min_length = min(reconstructed_clean_waveforms.shape[-1], enhanced_audio.shape[-1])
-    enhanced_audio = enhanced_audio[..., :min_length]
-    reconstructed_clean_waveforms = reconstructed_clean_waveforms[..., :min_length]
-
+    # ----------------------------------------------------------
+    # min_length = min(reconstructed_clean_waveforms.shape[-1], enhanced_audio.shape[-1])  (2, 958)
+    # enhanced_audio = enhanced_audio[..., :min_length]
+    # reconstructed_clean_waveforms = reconstructed_clean_waveforms[..., :min_length]
+    # ----------------------------------------------------------
+    # Get the lengths of both tensors
+    enhanced_length = enhanced_audio.shape[-1]
+    reconstructed_length = reconstructed_clean_waveforms.shape[-1]
+    enhanced_audio, reconstructed_clean_waveforms = enhanced_audio.float(), reconstructed_clean_waveforms.float()
+    # Check which tensor is shorter and interpolate it to match the longer one
+    if enhanced_length < reconstructed_length:
+        # Interpolate enhanced_audio to match reconstructed_clean_waveforms
+        enhanced_audio = F.interpolate(enhanced_audio.unsqueeze(1), size=reconstructed_length, mode='linear', align_corners=False).squeeze(1)
+    elif reconstructed_length < enhanced_length:
+        # Interpolate reconstructed_clean_waveforms to match enhanced_audio
+        reconstructed_clean_waveforms = F.interpolate(reconstructed_clean_waveforms.unsqueeze(1), size=enhanced_length, mode='linear', align_corners=False).squeeze(1)
+    # ----------------------------------------------------------
     # Convert numpy arrays to PyTorch tensors if needed
     if isinstance(reconstructed_clean_waveforms, np.ndarray):
         reconstructed_clean_waveforms = torch.tensor(reconstructed_clean_waveforms)
@@ -310,6 +327,8 @@ def task_aware(noisy_audio_batch, clean_audio_batch):
     if reconstructed_clean_waveforms.ndimension() == 2:  # Shape: (batch_size, time)
         reconstructed_clean_waveforms = reconstructed_clean_waveforms.to(device="cuda:0")
 
+
+    # print(enhanced_audio.shape, reconstructed_clean_waveforms.shape)
     # Step 3: Compute losses for the entire batch
     mse_loss = F.mse_loss(enhanced_audio, reconstructed_clean_waveforms, reduction='mean')
 
@@ -320,7 +339,32 @@ def task_aware(noisy_audio_batch, clean_audio_batch):
     avg_mse_loss_enc_clean = mse_loss.item()
     # avg_pesq_loss and avg_snr_loss can be calculated if using PESQ and SNR metrics
 
-    return avg_mse_loss_enc_clean  # , avg_pesq_loss, avg_snr_loss if implemented
+    # ----------------To be checked by professional :)------------------------------------
+    discriminator_loss = 0.0
+
+    # Assuming enhanced_audio and ground_truth_clean_waveforms are your inputs with shape [2, 958]
+    # They need to be reshaped to [batch_size, channels, length], e.g., [2, 1, 958]
+    enhanced_audio = enhanced_audio.unsqueeze(1)  # Shape becomes [2, 1, 958]
+    ground_truth_clean_waveforms = reconstructed_clean_waveforms.unsqueeze(1)  # Shape becomes [2, 1, 958]
+
+    # print(enhanced_audio.shape)
+    # Forward pass through the discriminator
+    y_disc_enhanced, fmap_enhanced = disc(enhanced_audio)
+    y_disc_ground_truth, fmap_ground_truth = disc(ground_truth_clean_waveforms)
+
+    
+    # Calculate L1 loss between feature maps for feature matching
+    for fmap_enh, fmap_gt in zip(fmap_enhanced, fmap_ground_truth):
+        for feat_enh, feat_gt in zip(fmap_enh, fmap_gt):
+            discriminator_loss += F.l1_loss(feat_enh, feat_gt)
+
+    # Calculate the adversarial loss for logits (optional, depending on your use case)
+    for y_enh, y_gt in zip(y_disc_enhanced, y_disc_ground_truth):
+        discriminator_loss += F.mse_loss(y_enh, torch.ones_like(y_enh))  # adversarial loss for enhanced
+        discriminator_loss += F.mse_loss(y_gt, torch.zeros_like(y_gt))   # adversarial loss for ground truth
+
+    # print(avg_mse_loss_enc_clean, discriminator_loss.item())
+    return avg_mse_loss_enc_clean, discriminator_loss.item()  # , avg_pesq_loss, avg_snr_loss if implemented
     # for num_index in range(batch_size):
     #     # Load and process the clean and noisy audio for the current batch index
     #     # Process audio batch
