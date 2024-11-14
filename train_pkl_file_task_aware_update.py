@@ -265,7 +265,7 @@ def task_aware(noisy_audio_batch, clean_audio_batch):
         # Interpolate reconstructed_clean_waveforms to match enhanced_audio
         reconstructed_clean_waveforms = F.interpolate(reconstructed_clean_waveforms.unsqueeze(1), size=enhanced_length, mode='linear', align_corners=False).squeeze(1)
     # ----------------------------------------------------------
-    print(reconstructed_clean_waveforms.shape, reconstructed_noisy_waveforms.shape, enhanced_audio.shape)
+    # print(reconstructed_clean_waveforms.shape, reconstructed_noisy_waveforms.shape, enhanced_audio.shape)
     # Convert numpy arrays to PyTorch tensors if needed
     if isinstance(reconstructed_clean_waveforms, np.ndarray):
         reconstructed_clean_waveforms = torch.tensor(reconstructed_clean_waveforms)
