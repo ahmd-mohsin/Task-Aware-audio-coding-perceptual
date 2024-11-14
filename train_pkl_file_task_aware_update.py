@@ -30,7 +30,7 @@ from msstftd import MultiScaleSTFTDiscriminator
 # # Change to the temporary directory
 # os.chdir(temp_dir)
 import sys
-sys.path.append(os.path.abspath("/home/ahsan/Ahsan/PhD work/AAAI_2025_PAPER/Task-Aware-audio-coding-perceptual/sgmse"))
+sys.path.append(os.path.abspath("/home/ahmed/Task-Aware-audio-coding-perceptual/sgmse"))
 from test_single import enhance_audio
 from sgmse.model import ScoreModel
 # os.chdir(original_dir)
@@ -111,27 +111,6 @@ class SpectralDataset(Dataset):
 
         noisy4_magnitude = self.pad_tensor(torch.from_numpy(noisy_data_4["magnitude"]).float(), self.target_shape).to(self.device)
         noisy4_phase = self.pad_tensor(torch.from_numpy(noisy_data_4["phase"]).float(), self.target_shape).to(self.device)
-
-
-
-
-
-        # Normalize and pad tensors
-        # clean_magnitude = normalize_tensor(self.pad_tensor(torch.from_numpy(clean_data["magnitude"]).float(), self.target_shape)).to(self.device)
-        # clean_phase = normalize_tensor(self.pad_tensor(torch.from_numpy(clean_data["phase"]).float(), self.target_shape)).to(self.device)
-
-        # noisy1_magnitude = normalize_tensor(self.pad_tensor(torch.from_numpy(noisy_data_1["magnitude"]).float(), self.target_shape)).to(self.device)
-        # noisy1_phase = normalize_tensor(self.pad_tensor(torch.from_numpy(noisy_data_1["phase"]).float(), self.target_shape)).to(self.device)
-
-        # noisy2_magnitude = normalize_tensor(self.pad_tensor(torch.from_numpy(noisy_data_2["magnitude"]).float(), self.target_shape)).to(self.device)
-        # noisy2_phase = normalize_tensor(self.pad_tensor(torch.from_numpy(noisy_data_2["phase"]).float(), self.target_shape)).to(self.device)
-
-        # noisy3_magnitude = normalize_tensor(self.pad_tensor(torch.from_numpy(noisy_data_3["magnitude"]).float(), self.target_shape)).to(self.device)
-        # noisy3_phase = normalize_tensor(self.pad_tensor(torch.from_numpy(noisy_data_3["phase"]).float(), self.target_shape)).to(self.device)
-
-        # noisy4_magnitude = normalize_tensor(self.pad_tensor(torch.from_numpy(noisy_data_4["magnitude"]).float(), self.target_shape)).to(self.device)
-        # noisy4_phase = normalize_tensor(self.pad_tensor(torch.from_numpy(noisy_data_4["phase"]).float(), self.target_shape)).to(self.device)
-
         return {
             "clean_audio": {
                 "magnitude": clean_magnitude,
@@ -165,22 +144,6 @@ def seed_worker(worker_id):
     worker_seed = torch.initial_seed() % 2**32
     np.random.seed(worker_seed)
     random.seed(worker_seed)
-
-
-# Step 1: Reconstruct the waveform from magnitude and phase for both clean and enhanced audio
-
-# def reconstruct_waveform(magnitude, phase, sample_rate, n_fft=2048, hop_length=512, win_length=2048, window='hann'):
-#     """
-#     Reconstruct waveform from magnitude and phase using ISTFT.
-#     """
-#     magnitude = magnitude.detach().cpu().numpy()
-#     phase = phase.detach().cpu().numpy()
-#     # Combine magnitude and phase into a complex spectrogram
-#     complex_spectrogram = magnitude * np.exp(1j * phase)
-    
-#     # Perform inverse STFT to get the time-domain waveform
-#     y_reconstructed = librosa.istft(complex_spectrogram, hop_length=hop_length, win_length=win_length, window=window)
-#     return y_reconstructed
 
 
 def batch_reconstruct_waveform(magnitude_batch, phase_batch, sample_rate, n_fft=2048, hop_length=512, win_length=2048, window='hann'):
@@ -237,21 +200,6 @@ def reconstruct_waveform(magnitude, phase, sample_rate, n_fft=2048, hop_length=5
 
     return y_reconstructed.unsqueeze(0)
 
-# def reconstruct_waveform(magnitude, phase, sample_rate, n_fft=2048, hop_length=512, win_length=2048, window='hann'):
-#     """
-#     Reconstruct waveform from magnitude and phase using ISTFT.
-#     """
-#     # Convert magnitude and phase to complex form
-#     complex_spectrogram = magnitude * torch.exp(1j * phase)
-
-#     # If you're using librosa for inverse STFT (with numpy), you need to convert to numpy
-#     complex_spectrogram = complex_spectrogram.detach().cpu().numpy()
-
-#     # Perform inverse STFT to get the time-domain waveform
-#     y_reconstructed = librosa.istft(complex_spectrogram, hop_length=hop_length, win_length=win_length, window=window)
-
-#     return y_reconstructed
-
 def save_waveform(y, sr, file_path):
     """
     Save the waveform as a .wav file.
@@ -273,17 +221,10 @@ for param in model.parameters():
 disc = MultiScaleSTFTDiscriminator(filters=8)
 disc.to("cuda:0")
 
-
-# speech_branin_model = separator.from_hparams(source="speechbrain/sepformer-wham-enhancement", savedir='pretrained_models/sepformer-wham-enhancement')
-# for param in speech_branin_model.parameters():
-#     param.requires_grad = False  # Freeze the model parameters
 video_enhancement_model = ScoreModel.load_from_checkpoint("/home/ahsan/Downloads/train_wsj0_2cta4cov_epoch=159.ckpt", map_location="cuda:0")
 
 
 def task_aware(noisy_audio_batch, clean_audio_batch):
-    # noisy_audio_batch and clean_audio_batch are assumed to be batches of data
-    # sample_rate = 16000  # Use the appropriate sample rate for your data
-
     # Ensure both noisy and clean batches are the same size
     batch_size = noisy_audio_batch.size(0)
     
@@ -291,10 +232,6 @@ def task_aware(noisy_audio_batch, clean_audio_batch):
     mse_loss_total = 0.0
     pesq_loss_total = 0.0
     snr_loss_total = 0.0
-
-    # Initialize SpeechBrain model for source separation
-    # speech_brain_model = speech_branin_model  # Replace with your actual model loading
-
     # Load and process the clean and noisy audio for the entire batch
     clean_mag, clean_phase = clean_audio_batch["magnitude"], clean_audio_batch["phase"]  # Shape: (batch_size, ...)
     noisy_mag, noisy_phase = noisy_audio_batch[:, 0], noisy_audio_batch[:, 1]  # Shape: (batch_size, ...)
@@ -316,25 +253,6 @@ def task_aware(noisy_audio_batch, clean_audio_batch):
             t_eps=0.03
             )
     enhanced_audio = y_hat.view(y_hat.size(0), -1)
-    # # Process noisy waveforms through the model
-    # inputs = processor(reconstructed_noisy_waveforms, sampling_rate=SAMPLE_RATE, return_tensors="pt", padding=True)
-    # inputs_values = inputs.input_values.squeeze()  # Shape: (batch_size, time)
-    # inputs_values = inputs_values.to(device="cuda:0")
-
-    # # Forward pass through the model
-    # with torch.no_grad():
-    #     logits = model(inputs_values).logits  # Shape: (batch_size, time, classes)
-
-    # # Obtain enhanced audio by taking the argmax over logits
-    # enhanced_audio = torch.argmax(logits, dim=-1).to(device="cuda:0")  # Shape: (batch_size, time)
-    # print(reconstructed_clean_waveforms.shape, reconstructed_noisy_waveforms.shape, enhanced_audio.shape, logits.shape)
-
-    # Ensure enhanced audio and reconstructed clean waveforms have compatible lengths
-    # ----------------------------------------------------------
-    # min_length = min(reconstructed_clean_waveforms.shape[-1], enhanced_audio.shape[-1])  (2, 958)
-    # enhanced_audio = enhanced_audio[..., :min_length]
-    # reconstructed_clean_waveforms = reconstructed_clean_waveforms[..., :min_length]
-    # ----------------------------------------------------------
     # Get the lengths of both tensors
     enhanced_length = enhanced_audio.shape[-1]
     reconstructed_length = reconstructed_clean_waveforms.shape[-1]
