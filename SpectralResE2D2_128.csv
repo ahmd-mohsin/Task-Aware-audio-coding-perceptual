@@ -1,1 +1,5 @@
 Epoch,Avg_MSE_Loss,Avg_Nuclear_Loss,Avg_Cosine_Loss,Avg_Spectral_Loss,Avg_Spectral_SNR,Avg_Magnitude_Loss,Avg_Phase_Loss,Avg_Total_Loss,psnr_obs,psnr_clean,before_z1,before_z2,after_z1,after_z2
+<<<<<<< HEAD
+1,2.7215241889743242,0.5000000443178064,0.0,2.7215241780000574,0.12092040831003996,4.4161674956714405,0.8406836626810186,2.628425580964369,1.1674777460065395,0.9033819236984367,128,128,64,64
+=======
+>>>>>>> 9e3f24f557a34fbc2021442875a4b154b4b90a60
