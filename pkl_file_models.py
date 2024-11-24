@@ -4,6 +4,10 @@ import torch.nn as nn
 from collections import defaultdict, OrderedDict
 from sklearn.decomposition import PCA
 
+from corrected_model.encoder import ResEncoder
+from corrected_model.decoder import ResDecoder
+
+
 
 import torch.nn as nn
 import torch.nn.functional as F
@@ -254,14 +258,13 @@ class SpectralResE2D1(nn.Module):
         self.freq_dim = 1025
         self.time_dim = 600
         self.in_channels = 2  # magnitude, phase, db_scale
-        
         # self.total_features_after = z_dim1 + z_dim2
         self.total_features_after = total_features_after
         self.enc1 = SpectralEncoder(self.in_channels, self.freq_dim, self.time_dim, z_dim1, n_res_blocks)
         self.enc2 = SpectralEncoder(self.in_channels, self.freq_dim, self.time_dim, z_dim2, n_res_blocks)
         # self.enc1 = ResNetEncoder(input_channels=self.in_channels)
         # self.enc2 = ResNetEncoder(input_channels=self.in_channels)
-        self.dec = SpectralDecoder(self.in_channels*2, self.freq_dim, self.time_dim, self.total_features_after, n_res_blocks)
+        self.dec = SpectralDecoder(self.in_channels, self.freq_dim, self.time_dim, int(self.total_features_after*2), n_res_blocks)
         
         self.dimension_info = {}
     def get_model_name(self):
@@ -387,9 +390,10 @@ class SpectralResE2D1(nn.Module):
         cos_sim = torch.nn.CosineSimilarity()
         cos_loss = torch.mean(cos_sim(z1, z2))
         z_sample = torch.cat((z1, z2), dim=1)
-        
+        # print(z1_sample.shape)
         obs_dec = self.dec(z_sample)
         
+        print(obs.shape , obs_dec.shape)
         # Calculate losses
         mse = 0.5 * torch.mean((obs - obs_dec) ** 2, dim=(1, 2, 3))
         

@@ -30,7 +30,7 @@ from msstftd import MultiScaleSTFTDiscriminator
 # # Change to the temporary directory
 # os.chdir(temp_dir)
 import sys
-sys.path.append(os.path.abspath("/home/ahmed/Task-Aware-audio-coding-perceptual/sgmse"))
+sys.path.append(os.path.abspath("./sgmse"))
 from test_single import enhance_audio
 from sgmse.model import ScoreModel
 # os.chdir(original_dir)
@@ -167,6 +167,7 @@ def batch_reconstruct_waveform(magnitude_batch, phase_batch, sample_rate, n_fft=
 
     # Perform inverse STFT on each item in the batch
     # Use list comprehension to apply torch.istft on each batch element
+    print(complex_spectrogram_batch[0].shape)
     reconstructed_waveforms = [
         torch.istft(
             complex_spectrogram_batch[i],
@@ -221,7 +222,7 @@ for param in model.parameters():
 disc = MultiScaleSTFTDiscriminator(filters=8)
 disc.to("cuda:0")
 
-video_enhancement_model = ScoreModel.load_from_checkpoint("/home/ahsan/Downloads/train_wsj0_2cta4cov_epoch=159.ckpt", map_location="cuda:0")
+video_enhancement_model = ScoreModel.load_from_checkpoint("./train_wsj0_2cta4cov_epoch=159.ckpt", map_location="cuda:0")
 
 
 def task_aware(noisy_audio_batch, clean_audio_batch):
@@ -496,9 +497,9 @@ def train_spectral_ae(batch_size=32, num_epochs=100, beta_kl=1.0, beta_rec=0.0,
     # Initialize model
     
     
-    model = SpectralResE2D2(z_dim1=int(z_dim/2), z_dim2=int(z_dim/2), n_res_blocks=3, total_features_after=total_feature_after).to(device)
+    # model = SpectralResE2D2(z_dim1=int(z_dim/2), z_dim2=int(z_dim/2), n_res_blocks=3, total_features_after=total_feature_after).to(device)
     # model = SpectralResE4D1(z_dim1=int(z_dim/2), z_dim2=int(z_dim/2), z_dim3=int(z_dim/2), z_dim4=int(z_dim/2), n_res_blocks=3, random_bottle_neck=True, total_features_after=total_feature_after).to(device)
-    # model = SpectralResE2D1(z_dim1=int(z_dim/2), z_dim2=int(z_dim/2), n_res_blocks=3, total_features_after=total_feature_after).to(device)
+    model = SpectralResE2D1(z_dim1=int(z_dim/2), z_dim2=int(z_dim/2), n_res_blocks=3, total_features_after=total_feature_after).to(device)
     # model = SpectralResE1D1(z_dim=int(z_dim), n_res_blocks=3, total_features_after=total_feature_after).to(device)
     # model_name = f"SpecResE2D1_z_dim_{int(z_dim/2)}"
     model_name = model.get_model_name()
@@ -523,7 +524,7 @@ def train_spectral_ae(batch_size=32, num_epochs=100, beta_kl=1.0, beta_rec=0.0,
     header = [
         "Epoch", "Avg_MSE_Loss", "Avg_Nuclear_Loss", "Avg_Cosine_Loss", 
         "Avg_Spectral_Loss", "Avg_Spectral_SNR", 
-        "Avg_Magnitude_Loss", "Avg_Phase_Loss", "Avg_Total_Loss", "psnr_obs", "psnr_clean"
+        "Avg_Magnitude_Loss", "Avg_Phase_Loss", "Avg_Total_Loss", "psnr_obs", "psnr_clean", "denoise_MSE_LOSS", "discriminator_loss"
     ] + dim_keys
 
     # Write the header once
@@ -538,6 +539,7 @@ def train_spectral_ae(batch_size=32, num_epochs=100, beta_kl=1.0, beta_rec=0.0,
         total_psnr_obs = []
         total_psnr_clean = []
         total_denoised_mse_loss = []
+        total_discriminator_task_loss = []
         epoch_dim_info = defaultdict(list)  # Collect dynamic dim_info per epoch
         batch_idx = 0
         for batch_idx, data in enumerate(track(train_loader, description=f"Epoch {epoch+1}/{num_epochs}:   Batch {batch_idx}/{len(train_loader)} ")):
@@ -561,13 +563,15 @@ def train_spectral_ae(batch_size=32, num_epochs=100, beta_kl=1.0, beta_rec=0.0,
                 clean_audio,
                 True,
             )
-            denoised_mse_loss = task_aware(decoded, clean_audio)
+            denoised_mse_loss, discriminator_task_loss = task_aware(decoded, clean_audio)
             # Calculate total loss
             # loss = beta_rec * mse_loss 
+            total_task_aware_loss = denoised_mse_loss + discriminator_task_loss
+            
             loss = (beta_rec * mse_loss + 
                    beta_kl * nuc_loss + 
                    weight_cross_penalty * cos_loss + 
-                   spec_loss)
+                   spec_loss) + total_task_aware_loss
             
             # Backward pass
             optimizer.zero_grad()
@@ -577,6 +581,7 @@ def train_spectral_ae(batch_size=32, num_epochs=100, beta_kl=1.0, beta_rec=0.0,
             epoch_losses.append(loss.item())
             mse_losses.append(mse_loss.item())
             total_denoised_mse_loss.append(denoised_mse_loss)
+            total_discriminator_task_loss.append(discriminator_task_loss)
             nuc_losses.append(nuc_loss.item())
             cos_losses.append(cos_loss.item())
             spec_losses.append(spec_loss.item())
@@ -609,6 +614,7 @@ def train_spectral_ae(batch_size=32, num_epochs=100, beta_kl=1.0, beta_rec=0.0,
         avg_mag_loss = np.mean(mag_losses)
         avg_phase_loss = np.mean(phase_losses)
         avg_denoised_mse_loss = np.mean(total_denoised_mse_loss)
+        avg_total_discriminator_task_loss = np.mean(total_discriminator_task_loss)
         avg_total_loss = np.mean(total_losses) 
         avg_psnr_obs = np.mean(total_psnr_obs) 
         avg_psnr_clean = np.mean(total_psnr_clean) 
@@ -618,7 +624,7 @@ def train_spectral_ae(batch_size=32, num_epochs=100, beta_kl=1.0, beta_rec=0.0,
         # Prepare data for CSV row
         epoch_row = [
             epoch + 1, avg_mse_loss, avg_nuc_loss, avg_cos_loss, 
-            avg_spec_loss, avg_spec_snr, avg_mag_loss, avg_phase_loss, avg_total_loss,avg_psnr_obs,avg_psnr_clean
+            avg_spec_loss, avg_spec_snr, avg_mag_loss, avg_phase_loss, avg_total_loss,avg_psnr_obs,avg_psnr_clean, avg_denoised_mse_loss, avg_total_discriminator_task_loss
         ]
         # print(dim_info)
         # Add averaged dim_info values to the row
@@ -635,6 +641,7 @@ def train_spectral_ae(batch_size=32, num_epochs=100, beta_kl=1.0, beta_rec=0.0,
 
         print(f"\nEpoch {epoch+1} Average Loss: {avg_loss:.4f}")
         print(f"\nEpoch {epoch+1} Average Denoised MSE Loss: {avg_denoised_mse_loss:.4f}")
+        print(f"\nEpoch {epoch+1} Average Discriminator Loss: {avg_total_discriminator_task_loss:.4f}")
         # Save model checkpoint
         if (epoch + 1) % 5 == 0:
             base_dir = f"./models/{model_name}"
@@ -652,7 +659,7 @@ if __name__ == "__main__":
     parser.add_argument("-n", "--num_epochs", type=int, default=100)
     parser.add_argument("-z", "--z_dim", type=int, default=256)
     parser.add_argument("-l", "--lr", type=float, default=2e-4)
-    parser.add_argument("-bs", "--batch_size", type=int, default=2)
+    parser.add_argument("-bs", "--batch_size", type=int, default=12)
     parser.add_argument("-r", "--beta_rec", type=float, default=1.0)
     parser.add_argument("-k", "--beta_kl", type=float, default=0.1)
     parser.add_argument("-w", "--weight_cross_penalty", type=float, default=0.1)

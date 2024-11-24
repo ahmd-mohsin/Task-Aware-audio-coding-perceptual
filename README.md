@@ -101,7 +101,8 @@ Generated audio and visual results are saved in the `data/` and `summary/` folde
 ## Contributing
 
 Contributions to improve the functionality and efficiency of this project are welcome. Please submit issues or pull requests with improvements.
-
+`pip install --upgrade setuptools`
+`pip install --use-pep517 pesq`
 ## License
 
 This project is licensed under the MIT License.
