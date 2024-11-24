@@ -1181,4 +1181,3 @@ class SpectralResE2D2(nn.Module):
         
 
         return obs_dec, total_mse, total_nuc_loss, cross_recon_loss, torch.tensor(0), total_spec_loss, spec_loss1, total_spec_snr, psnr_obs, psnr_clean, self.dimension_info
-
