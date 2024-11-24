@@ -10,8 +10,9 @@ from tqdm import tqdm
 from rich.progress import track
 import torch.optim as optim
 import csv
-from pkl_file_models import *
+from pkl_file_model_updated import *
 import random
+from pathlib import Path
 import torch.nn.functional as F
 from collections import defaultdict
 def normalize_tensor(tensor):
@@ -26,7 +27,7 @@ class SpectralDataset(Dataset):
             clean_data_dir (str): Directory containing clean spectral data pkl files
             noisy_data_dir (str): Directory containing noisy spectral data pkl files
         """
-        self.target_shape = (1025, 600)
+        self.target_shape = (1024, 592)
         self.clean_data_dir = Path(os.path.join(clean_data_dir, file_type))
         
         # Initialize four noisy data directories
@@ -90,8 +91,11 @@ class SpectralDataset(Dataset):
 
         noisy4_magnitude = self.pad_tensor(torch.from_numpy(noisy_data_4["magnitude"]).float(), self.target_shape).to(self.device)
         noisy4_phase = self.pad_tensor(torch.from_numpy(noisy_data_4["phase"]).float(), self.target_shape).to(self.device)
+        
+        # print(noisy4_phase.shape)
+        # -----------------------------------------------------------
 
-
+        # -----------------------------------------------------------
 
 
 
@@ -183,48 +187,36 @@ def train_spectral_ae(batch_size=32, num_epochs=100, beta_kl=1.0, beta_rec=0.0,
 
     # Initialize model
     
+    freq_dim = 1024
+    time_dim = 592
+    in_channels = 2  # magnitude, phase, db_scale
+    # model = ResE4D1((in_channels, freq_dim, time_dim), (in_channels, freq_dim, time_dim), (in_channels, freq_dim, time_dim), (in_channels, freq_dim, time_dim), int(z_dim/4), int(z_dim/4), int(z_dim/4), int(z_dim/4), 4, 1).to(device)
+    # model = ResE2D1((in_channels*2, freq_dim, time_dim), (in_channels*2, freq_dim, time_dim), int(z_dim/2), int(z_dim/2), 4, 1).to(device)
+    model = ResE1D1((in_channels*4, freq_dim, time_dim), int(z_dim) , 4, 1).to(device)
     
-    model = SpectralResE2D2(z_dim1=int(z_dim/2), z_dim2=int(z_dim/2), n_res_blocks=3, total_features_after=total_feature_after).to(device)
-    # model = SpectralResE4D1(z_dim1=int(z_dim/2), z_dim2=int(z_dim/2), z_dim3=int(z_dim/2), z_dim4=int(z_dim/2), n_res_blocks=3, random_bottle_neck=True, total_features_after=total_feature_after).to(device)
-    # model = SpectralResE2D1(z_dim1=int(z_dim/2), z_dim2=int(z_dim/2), n_res_blocks=3, total_features_after=total_feature_after).to(device)
-    # model = SpectralResE1D1(z_dim=int(z_dim), n_res_blocks=3, total_features_after=total_feature_after).to(device)
-    # model_name = f"SpecResE2D1_z_dim_{int(z_dim/2)}"
+
     model_name = model.get_model_name()
     model.train()
     # Create a CSV file and write the header
-    csv_file = f'{model_name}.csv'
-    # Assuming consistent keys in dim_info, initialize them once
-    dim_keys = []  # Set of unique keys in dim_info, assumed to be static
-    # # Sample batch to retrieve `dim_info` keys
-    # sample_batch = next(iter(train_loader))
+    csv_file = Path(f'{model_name}.csv')
+    
+    # Write the header row if the file does not exist
+    if not csv_file.exists():
+        with open(csv_file, mode='w', newline='') as file:
+            writer = csv.writer(file)
+            writer.writerow([
+                "Epoch", "Average Loss", "MSE Loss", "Nuclear Loss", "Cosine Loss",
+                "Magnitude Loss", "Phase Loss", "Total Loss", "PSNR", "Spectral SNR"
+            ])
 
-    # _, _, _, _, _, _, _, _, dim_info_sample = model(
-    #     sample_batch["noisy_audio_1"],
-    #     sample_batch["noisy_audio_2"],
-    #     sample_batch["clean_audio"],
-    #     random_bottle_neck=randpca
-    # )
-    dim_keys = sorted(model.get_dim_info())  # Store sorted keys for consistent order
 
     optimizer = optim.Adam(model.parameters(), lr=lr)
-    # Initialize CSV header
-    header = [
-        "Epoch", "Avg_MSE_Loss", "Avg_Nuclear_Loss", "Avg_Cosine_Loss", 
-        "Avg_Spectral_Loss", "Avg_Spectral_SNR", 
-        "Avg_Magnitude_Loss", "Avg_Phase_Loss", "Avg_Total_Loss", "psnr_obs", "psnr_clean"
-    ] + dim_keys
-
-    # Write the header once
-    with open(csv_file, mode='w', newline='') as file:
-        writer = csv.writer(file)
-        writer.writerow(header)
 
     for epoch in range(num_epochs):
         epoch_losses = []
         mse_losses, nuc_losses, cos_losses, spec_losses, spec_snrs = [], [], [], [], []
         mag_losses, phase_losses, total_losses = [], [], []
-        total_psnr_obs = []
-        total_psnr_clean = []
+        total_psnr = []
         epoch_dim_info = defaultdict(list)  # Collect dynamic dim_info per epoch
         batch_idx = 0
         for batch_idx, data in enumerate(track(train_loader, description=f"Epoch {epoch+1}/{num_epochs}:   Batch {batch_idx}/{len(train_loader)} ")):
@@ -235,84 +227,107 @@ def train_spectral_ae(batch_size=32, num_epochs=100, beta_kl=1.0, beta_rec=0.0,
             noisy_audio_4 = data["noisy_audio_4"]
             # print(randpca)
             # Forward pass
-            decoded, mse_loss, nuc_loss, _, cos_loss, spec_loss, spec_loss_dict, spec_snr,psnr_obs, psnr_clean, dim_info = model(
-                noisy_audio_1, 
-                noisy_audio_2, 
-                # noisy_audio_3, 
-                # noisy_audio_4, 
-                clean_audio,
-                True,
+            # decoded, mse_loss, nuc_loss, _, cos_loss, spec_loss, spec_loss_dict, spec_snr,psnr_obs, psnr_clean, dim_info = model(
+            
+            obs1_stacked = torch.stack([
+                noisy_audio_1['magnitude'],
+                noisy_audio_1['phase'],
+                # obs1['db_scale']
+            ], dim=1).float()  # Shape: (batch, 3, 1025, 123)
+            
+            obs2_stacked = torch.stack([
+                noisy_audio_2['magnitude'],
+                noisy_audio_2['phase'],
+                # obs2['db_scale']
+            ], dim=1).float()  # Shape: (batch, 3, 1025, 123)
+            
+            obs3_stacked = torch.stack([
+                noisy_audio_3['magnitude'],
+                noisy_audio_3['phase'],
+                # obs1['db_scale']
+            ], dim=1).float()  # Shape: (batch, 3, 1025, 123)
+            
+            obs4_stacked = torch.stack([
+                noisy_audio_4['magnitude'],
+                noisy_audio_4['phase'],
+                # obs2['db_scale']
+            ], dim=1).float()  # Shape: (batch, 3, 1025, 123)
+            
+            
+            ResE2D1_obs_1 = torch.cat((obs1_stacked, obs2_stacked), dim = 1)
+            ResE2D1_obs_2 = torch.cat((obs3_stacked, obs4_stacked), dim = 1)
+            
+            
+            ResE1D1_obs = torch.cat((obs1_stacked, obs2_stacked, obs3_stacked, obs4_stacked), dim = 1)
+            
+            # new_obs_1 = new_obs_1[:, :,:1024,:592 ]
+            # new_obs_2 = new_obs_2[:, :,:1024,:592 ]
+            
+            # print(ResE2D1_obs_1.shape)
+            decoded, mse_loss, nuc_loss, _, cos_loss, spec_loss_dict, total_spec_snr, psnr = model(
+                # obs1_stacked,
+                # obs2_stacked,
+                # obs3_stacked,
+                # obs4_stacked,
+                # ResE2D1_obs_1, 
+                # ResE2D1_obs_2, 
+                ResE1D1_obs,
+                # True,
             )
             
             # Calculate total loss
             # loss = beta_rec * mse_loss 
             loss = (beta_rec * mse_loss + 
                    beta_kl * nuc_loss + 
-                   weight_cross_penalty * cos_loss + 
-                   spec_loss)
+                   weight_cross_penalty * cos_loss)
             
             # Backward pass
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
                     # Store losses for averaging
-            epoch_losses.append(loss.item())
-            mse_losses.append(mse_loss.item())
-            nuc_losses.append(nuc_loss.item())
-            cos_losses.append(cos_loss.item())
-            spec_losses.append(spec_loss.item())
-            spec_snrs.append(spec_snr.item())
-            mag_losses.append(spec_loss_dict["magnitude_loss"].item())
-            phase_losses.append(spec_loss_dict["phase_loss"].item())
-            total_losses.append(spec_loss_dict["total_loss"].item())
-            total_psnr_clean.append(psnr_clean.item())
-            total_psnr_obs.append(psnr_obs.item())
-        
+            # Append losses to their respective lists, checking if they are tensors
+            epoch_losses.append(loss.item() if isinstance(loss, torch.Tensor) else loss)
+            mse_losses.append(mse_loss.item() if isinstance(mse_loss, torch.Tensor) else mse_loss)
+            nuc_losses.append(nuc_loss.item() if isinstance(nuc_loss, torch.Tensor) else nuc_loss)
+            cos_losses.append(cos_loss.item() if isinstance(cos_loss, torch.Tensor) else cos_loss)
+            mag_losses.append(spec_loss_dict["magnitude_loss"].item() if isinstance(spec_loss_dict["magnitude_loss"], torch.Tensor) else spec_loss_dict["magnitude_loss"])
+            phase_losses.append(spec_loss_dict["phase_loss"].item() if isinstance(spec_loss_dict["phase_loss"], torch.Tensor) else spec_loss_dict["phase_loss"])
+            total_losses.append(spec_loss_dict["total_loss"].item() if isinstance(spec_loss_dict["total_loss"], torch.Tensor) else spec_loss_dict["total_loss"])
+            total_psnr.append(psnr.item() if isinstance(psnr, torch.Tensor) else psnr)
+            spec_snrs.append(total_spec_snr.item() if isinstance(total_spec_snr, torch.Tensor) else total_spec_snr)
 
-            # if batch_idx % 10 == 0:
-            #     print(f"\nBatch {batch_idx}")
-            #     print(f"MSE Loss: {mse_loss.item():.4f}")
-            #     print(f"Nuclear Loss: {nuc_loss.item():.4f}")
-            #     print(f"Cosine Loss: {cos_loss.item():.4f}")
-            #     print(f"Spectral Loss: {spec_loss.item():.4f}")
-            #     print(f"Spectral SNR: {spec_snr.item():.2f} dB")
-            #     for key in sorted(dim_info.keys()):
-            #         # avg_dim_value = np.mean(epoch_dim_info[key])  # Average value for this key
-            #         print(f"{key}: {dim_info[key]}")
+            # If batch_idx is divisible by 10, print the losses
+            if batch_idx % 10 == 0:
+                print(f"\nBatch {batch_idx}")
+                print(f"MSE Loss: {mse_loss.item() if isinstance(mse_loss, torch.Tensor) else mse_loss:.4f}")
+                print(f"Nuclear Loss: {nuc_loss.item() if isinstance(nuc_loss, torch.Tensor) else nuc_loss:.4f}")
+                print(f"Cosine Loss: {cos_loss.item() if isinstance(cos_loss, torch.Tensor) else cos_loss:.4f}")
+                print(f"Spectral Magnitude Loss: {spec_loss_dict['magnitude_loss'] if isinstance(spec_loss_dict['magnitude_loss'], torch.Tensor) else spec_loss_dict['magnitude_loss']:.4f}")
+                print(f"Spectral Phase Loss: {spec_loss_dict['phase_loss'] if isinstance(spec_loss_dict['phase_loss'], torch.Tensor) else spec_loss_dict['phase_loss']:.4f}")
+                print(f"Spectral Total Loss: {spec_loss_dict['total_loss'] if isinstance(spec_loss_dict['total_loss'], torch.Tensor) else spec_loss_dict['total_loss']:.4f}")
+                print(f"Spectral SNR: {total_spec_snr.item() if isinstance(total_spec_snr, torch.Tensor) else total_spec_snr:.2f} dB")
+                print(f"PSNR: {psnr.item() if isinstance(psnr, torch.Tensor) else psnr:.2f}")
+            break
 
-    
+
         avg_loss = np.mean(epoch_losses)
         avg_mse_loss = np.mean(mse_losses)
         avg_nuc_loss = np.mean(nuc_losses)
         avg_cos_loss = np.mean(cos_losses)
-        avg_spec_loss = np.mean(spec_losses)
-        avg_spec_snr = np.mean(spec_snrs)
         avg_mag_loss = np.mean(mag_losses)
         avg_phase_loss = np.mean(phase_losses)
         avg_total_loss = np.mean(total_losses) 
-        avg_psnr_obs = np.mean(total_psnr_obs) 
-        avg_psnr_clean = np.mean(total_psnr_clean) 
-            # Print batch statistics
-        
-        
-        # Prepare data for CSV row
-        epoch_row = [
-            epoch + 1, avg_mse_loss, avg_nuc_loss, avg_cos_loss, 
-            avg_spec_loss, avg_spec_snr, avg_mag_loss, avg_phase_loss, avg_total_loss,avg_psnr_obs,avg_psnr_clean
-        ]
-        
-        # Add averaged dim_info values to the row
-        for key in sorted(dim_info.keys()):
-            # avg_dim_value = np.mean(epoch_dim_info[key])  # Average value for this key
-            epoch_row.append(dim_info[key])
-        
-        # Save the row to CSV
+        avg_psnr = np.mean(total_psnr) 
+        avg_spec_snr = np.mean(spec_snrs)
+            # Save metrics for the current epoch to the CSV file
         with open(csv_file, mode='a', newline='') as file:
             writer = csv.writer(file)
-            writer.writerow(epoch_row)
-
-
-
+            writer.writerow([
+                epoch + 1, avg_loss, avg_mse_loss, avg_nuc_loss, avg_cos_loss,
+                avg_mag_loss, avg_phase_loss, avg_total_loss, avg_psnr, avg_spec_snr
+            ])
+        
         print(f"\nEpoch {epoch+1} Average Loss: {avg_loss:.4f}")
         # Save model checkpoint
         if (epoch + 1) % 5 == 0:
@@ -331,7 +346,7 @@ if __name__ == "__main__":
     parser.add_argument("-n", "--num_epochs", type=int, default=100)
     parser.add_argument("-z", "--z_dim", type=int, default=32)
     parser.add_argument("-l", "--lr", type=float, default=2e-4)
-    parser.add_argument("-bs", "--batch_size", type=int, default=16)
+    parser.add_argument("-bs", "--batch_size", type=int, default=2)
     parser.add_argument("-r", "--beta_rec", type=float, default=1.0)
     parser.add_argument("-k", "--beta_kl", type=float, default=0.1)
     parser.add_argument("-w", "--weight_cross_penalty", type=float, default=0.1)
